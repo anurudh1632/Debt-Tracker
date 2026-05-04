@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v1.9</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.2</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -210,7 +210,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Lender</th><th>Principal</th><th>Interest %</th><th>Total payable</th><th>Due date</th><th>Days left</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>#</th><th>Lender</th><th>Loan amt</th><th>Net received</th><th>Daily interest</th><th>Days elapsed</th><th>Closure today</th><th>Max payable</th><th>Due date</th><th>Days left</th><th>Status</th><th>Actions</th></tr>
           </thead>
           <tbody id="stl-body"></tbody>
         </table>
@@ -295,14 +295,21 @@
   <div class="modal">
     <div class="modal-title" id="stl-modal-title">Add Short Term Loan</div>
     <div class="form-grid">
-      <div class="form-group"><label>Lender name *</label><input id="stl-name" placeholder="e.g. EarlySalary, friend" /></div>
-      <div class="form-group"><label>Principal amount (₹) *</label><input id="stl-principal" type="number" placeholder="e.g. 20000" oninput="calcSTLPreview()" /></div>
-      <div class="form-group"><label>Flat interest rate (%) *</label><input id="stl-rate" type="number" step="0.1" placeholder="e.g. 2.5 for 30 days" oninput="calcSTLPreview()" /></div>
-      <div class="form-group"><label>Due date *</label><input id="stl-due" type="date" /></div>
+      <div class="form-group"><label>Lender name *</label><input id="stl-name" placeholder="e.g. SalaryAdda, MoneyWalle" /></div>
+      <div class="form-group"><label>Loan amount (₹) * <span style="color:var(--text3);font-weight:400;">interest charged on this</span></label><input id="stl-loanamt" type="number" placeholder="e.g. 27000" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Net received (₹) * <span style="color:var(--text3);font-weight:400;">what hit your account</span></label><input id="stl-received" type="number" placeholder="e.g. 23814" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Daily interest rate (%) *</label><input id="stl-dayrate" type="number" step="0.1" placeholder="e.g. 1" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Max tenure (days) *</label><input id="stl-days" type="number" placeholder="e.g. 29" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Due date *</label><input id="stl-due" type="date" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Loan start date *</label><input id="stl-start" type="date" oninput="calcSTLPreview()" /></div>
+      <div class="form-group"><label>Processing fee (₹) <span style="color:var(--text3);font-weight:400;">optional</span></label><input id="stl-fee" type="number" placeholder="e.g. 3186" oninput="calcSTLPreview()" /></div>
     </div>
     <div id="stl-preview" style="display:none;background:var(--bg2);border-radius:var(--radius);padding:12px;font-size:13px;line-height:2;margin-bottom:1rem;border:0.5px solid var(--border);">
-      <div>Total payable: <b id="stl-r-total" style="color:var(--red-text)">—</b></div>
-      <div>Interest amount: <b id="stl-r-interest" style="color:var(--amber-text)">—</b></div>
+      <div>Daily interest: <b id="stl-r-daily" style="color:var(--red-text)">—</b></div>
+      <div>Days elapsed so far: <b id="stl-r-elapsed">—</b></div>
+      <div>Interest accrued till today: <b id="stl-r-accrued" style="color:var(--amber-text)">—</b></div>
+      <div>Close today (closure amount): <b id="stl-r-closure" style="color:var(--red-text)">—</b></div>
+      <div>If held till due date: <b id="stl-r-maxpay" style="color:var(--red-text)">—</b></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-stl')">Cancel</button>
@@ -952,40 +959,77 @@ function updateForeclosure() {
 
 // ── Short Term Loans ─────────────────────────────────
 function calcSTLPreview() {
-  const p = +document.getElementById('stl-principal').value;
-  const r = +document.getElementById('stl-rate').value;
+  const loanAmt = +document.getElementById('stl-loanamt').value;
+  const received = +document.getElementById('stl-received').value;
+  const dayRate = +document.getElementById('stl-dayrate').value;
+  const maxDays = +document.getElementById('stl-days').value;
+  const startStr = document.getElementById('stl-start').value;
   const preview = document.getElementById('stl-preview');
-  if (!p || !r) { preview.style.display = 'none'; return; }
-  const interest = p * (r / 100);
-  const total = p + interest;
+  if (!loanAmt || !dayRate) { preview.style.display = 'none'; return; }
+  const dailyInt = Math.round(loanAmt * (dayRate / 100));
+  const today = new Date(); today.setHours(0,0,0,0);
+  let elapsed = 0;
+  if (startStr) {
+    const start = new Date(startStr);
+    elapsed = Math.max(0, Math.ceil((today - start) / (1000*60*60*24)));
+  }
+  const accruedToday = dailyInt * elapsed;
+  const closureToday = loanAmt + accruedToday;
+  const maxPayable = loanAmt + (dailyInt * (maxDays || elapsed));
   preview.style.display = 'block';
-  document.getElementById('stl-r-total').textContent = fmt(total);
-  document.getElementById('stl-r-interest').textContent = fmt(interest);
+  document.getElementById('stl-r-daily').textContent = fmt(dailyInt) + '/day';
+  document.getElementById('stl-r-elapsed').textContent = elapsed + ' days';
+  document.getElementById('stl-r-accrued').textContent = fmt(accruedToday);
+  document.getElementById('stl-r-closure').textContent = fmt(closureToday);
+  document.getElementById('stl-r-maxpay').textContent = fmt(maxPayable) + (maxDays ? ' (' + maxDays + ' days)' : '');
 }
+
 function openAddSTL() {
   document.getElementById('stl-modal-title').textContent = 'Add Short Term Loan';
-  ['stl-name','stl-principal','stl-rate'].forEach(id => document.getElementById(id).value = '');
+  ['stl-name','stl-loanamt','stl-received','stl-dayrate','stl-days','stl-fee'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('stl-due').value = '';
+  document.getElementById('stl-start').value = new Date().toISOString().split('T')[0];
   document.getElementById('stl-preview').style.display = 'none';
   document.getElementById('modal-stl').classList.add('open');
 }
+
 function saveSTL() {
-  const p = +document.getElementById('stl-principal').value;
-  const r = +document.getElementById('stl-rate').value;
+  const loanAmt = +document.getElementById('stl-loanamt').value;
+  const received = +document.getElementById('stl-received').value;
+  const dayRate = +document.getElementById('stl-dayrate').value;
+  const maxDays = +document.getElementById('stl-days').value;
+  const fee = +document.getElementById('stl-fee').value || 0;
+  const due = document.getElementById('stl-due').value;
+  const startDate = document.getElementById('stl-start').value;
+  if (!loanAmt || !received || !dayRate || !maxDays || !due || !startDate) { alert('Please fill all required fields'); return; }
+  const dailyInt = Math.round(loanAmt * (dayRate / 100));
   const obj = {
     name: document.getElementById('stl-name').value.trim(),
-    principal: p,
-    rate: r,
-    totalPayable: Math.round(p + p * (r / 100)),
-    due: document.getElementById('stl-due').value,
+    loanAmt,
+    received,
+    dayRate,
+    maxDays,
+    dailyInt,
+    processingFee: fee,
+    maxPayable: loanAmt + (dailyInt * maxDays),
+    due,
+    startDate,
     paid: false
   };
-  if (!obj.name || !obj.principal || !obj.rate || !obj.due) { alert('All fields required'); return; }
   stls.push(obj);
   closeModal('modal-stl'); saveLocal();
 }
+
 function markSTLPaid(i) { stls[i].paid = true; saveLocal(); }
 function deleteSTL(i) { if (confirm('Delete this loan?')) { stls.splice(i, 1); saveLocal(); } }
+
+function calcSTLClosure(s) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(s.startDate || s.due);
+  const elapsed = Math.max(0, Math.ceil((today - start) / (1000*60*60*24)));
+  const accrued = s.dailyInt * elapsed;
+  return { elapsed, accrued, closure: s.loanAmt + accrued };
+}
 
 function renderSTLs() {
   const tbody = document.getElementById('stl-body');
@@ -1000,17 +1044,26 @@ function renderSTLs() {
     const dueToday = !s.paid && daysLeft === 0;
     let daysStr, daysColor;
     if (s.paid) { daysStr = 'Paid'; daysColor = 'var(--green-val)'; }
-    else if (overdue) { daysStr = Math.abs(daysLeft) + ' days overdue!'; daysColor = 'var(--red-text)'; }
+    else if (overdue) { daysStr = Math.abs(daysLeft) + 'd overdue!'; daysColor = 'var(--red-text)'; }
     else if (dueToday) { daysStr = 'Due today!'; daysColor = 'var(--red-text)'; }
     else if (daysLeft <= 5) { daysStr = daysLeft + ' days'; daysColor = 'var(--amber-text)'; }
     else { daysStr = daysLeft + ' days'; daysColor = 'var(--text)'; }
     const badge = s.paid ? '<span class="badge badge-paid">Paid</span>' : overdue ? '<span class="badge badge-pending">Overdue</span>' : '<span class="badge badge-partial">Active</span>';
+    // Handle both old and new format
+    const loanAmt = s.loanAmt || s.principal || 0;
+    const received = s.received || s.principal || 0;
+    const dailyInt = s.dailyInt || 0;
+    const { elapsed, accrued, closure } = s.startDate ? calcSTLClosure(s) : { elapsed: '—', accrued: '—', closure: s.totalPayable || 0 };
+    const maxPayable = s.maxPayable || s.totalPayable || 0;
     return `<tr>
       <td>${i+1}</td>
-      <td><b>${s.name}</b></td>
-      <td>${fmt(s.principal)}</td>
-      <td style="color:var(--amber-text)">${s.rate}%</td>
-      <td style="color:var(--red-text);font-weight:600;">${fmt(s.totalPayable)}<br><span style="font-size:11px;color:var(--text2)">+${fmt(s.totalPayable - s.principal)} interest</span></td>
+      <td><b>${s.name}</b>${s.processingFee ? '<br><span style="font-size:11px;color:var(--text2)">fee: ' + fmt(s.processingFee) + '</span>' : ''}</td>
+      <td>${fmt(loanAmt)}</td>
+      <td style="color:var(--text2)">${fmt(received)}</td>
+      <td style="color:var(--red-text);font-weight:600;">${dailyInt ? fmt(dailyInt) + '/day<br><span style="font-size:11px;color:var(--text2)">' + (s.dayRate || 0) + '% per day</span>' : '—'}</td>
+      <td style="color:var(--text2)">${elapsed} days</td>
+      <td style="color:var(--red-text);font-weight:700;">${fmt(closure)}<br><span style="font-size:11px;color:var(--text2)">int: ' + fmt(accrued) + '</span></td>
+      <td style="color:var(--amber-text);font-weight:600;">${fmt(maxPayable)}<br><span style="font-size:11px;color:var(--text2)">${s.maxDays || '—'} days max</span></td>
       <td style="font-size:12px;color:var(--text2)">${s.due}</td>
       <td style="font-weight:600;color:${daysColor}">${daysStr}</td>
       <td>${badge}</td>
@@ -1190,7 +1243,13 @@ function renderSummary() {
   const emiOutstanding = emis.reduce((s, e) => s + (e.outstanding || 0), 0);
   const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + Math.max(0, f.amount - (f.paidAmount || 0)), 0);
   const ccOutstanding = cards.reduce((s, c) => s + (c.outstanding || 0), 0);
-  const stlOutstanding = stls.filter(s => !s.paid).reduce((s, l) => s + (l.totalPayable || 0), 0);
+  const stlOutstanding = stls.filter(s => !s.paid).reduce((sum, s) => {
+    if (s.startDate && s.dailyInt) {
+      const { closure } = calcSTLClosure(s);
+      return sum + closure;
+    }
+    return sum + (s.totalPayable || s.loanAmt || 0);
+  }, 0);
   const goldOutstanding = golds.filter(g => !g.closed).reduce((s, g) => s + g.principal + calcPendingInterest(g.principal, g.ratePA, g.intPaidUpto), 0);
   const totalPaid = emis.reduce((s, e) => s + (e.paid || 0), 0);
   document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding + ccOutstanding + stlOutstanding + goldOutstanding);
