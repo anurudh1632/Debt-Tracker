@@ -96,6 +96,7 @@
     <div class="stat"><div class="stat-label">EMI debt</div><div class="stat-value" id="s-emi">₹0</div></div>
     <div class="stat"><div class="stat-label">Credit card debt</div><div class="stat-value" id="s-cc">₹0</div></div>
     <div class="stat"><div class="stat-label">Short term loans</div><div class="stat-value" id="s-stl">₹0</div></div>
+    <div class="stat"><div class="stat-label">Gold loans</div><div class="stat-value" id="s-gold">₹0</div></div>
     <div class="stat"><div class="stat-label">Friends debt</div><div class="stat-value" id="s-friends">₹0</div></div>
     <div class="stat"><div class="stat-label">Total paid (EMIs)</div><div class="stat-value success" id="s-paid">₹0</div></div>
   </div>
@@ -215,6 +216,61 @@
         </table>
         <div class="empty" id="stl-empty">No short term loans added yet.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Gold Loans Section -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Gold Loans</div>
+      <button class="btn btn-sm btn-primary" onclick="openAddGold()">+ Add gold loan</button>
+    </div>
+    <div class="card-body">
+      <div class="info-box" style="background:#FAEEDA;color:#854F0B;">Interest accrues daily on principal. Pay interest monthly to avoid compounding. Closure amount = principal + all pending interest. Get your gold back on full closure.</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Lender</th><th>Gold (g)</th><th>Principal</th><th>Rate (p.a.)</th><th>Taken on</th><th>Maturity</th><th>Int. paid upto</th><th>Pending interest</th><th>Closure amount</th><th>Days to maturity</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="gold-body"></tbody>
+        </table>
+        <div class="empty" id="gold-empty">No gold loans added yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Gold Loan Modal -->
+<div class="overlay" id="modal-gold">
+  <div class="modal">
+    <div class="modal-title" id="gold-modal-title">Add Gold Loan</div>
+    <div class="form-grid">
+      <div class="form-group"><label>Lender *</label><input id="gl-lender" placeholder="e.g. Muthoot Finance" /></div>
+      <div class="form-group"><label>Gold pledged (grams)</label><input id="gl-grams" type="number" step="0.01" placeholder="e.g. 25.5" /></div>
+      <div class="form-group"><label>Loan amount / Principal (₹) *</label><input id="gl-principal" type="number" placeholder="e.g. 299000" /></div>
+      <div class="form-group"><label>Interest rate (% p.a.) *</label><input id="gl-rate" type="number" step="0.1" placeholder="e.g. 17" /></div>
+      <div class="form-group"><label>Loan taken on *</label><input id="gl-start" type="date" /></div>
+      <div class="form-group"><label>Maturity date *</label><input id="gl-maturity" type="date" /></div>
+      <div class="form-group"><label>Interest paid up to *</label><input id="gl-paid-upto" type="date" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-gold')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGold()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Gold Loan Pay Interest Modal -->
+<div class="overlay" id="modal-goldpay">
+  <div class="modal">
+    <div class="modal-title">Record Interest Payment</div>
+    <div id="goldpay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
+    <div class="form-grid" style="grid-template-columns:1fr;">
+      <div class="form-group"><label>Paid interest up to (new date)</label><input id="gp-upto" type="date" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-goldpay')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmGoldPay()">Record payment</button>
     </div>
   </div>
 </div>
@@ -455,7 +511,7 @@ function ok(msg) {
     .setMimeType(ContentService.MimeType.TEXT);
 }`;
 
-let emis = [], friends = [], cards = [], stls = [], config = { url: '', tab: 'Debt_Tracker' };
+let emis = [], friends = [], cards = [], stls = [], golds = [], config = { url: '', tab: 'Debt_Tracker' };
 let editEMIIdx = null, payIdx = null;
 
 function fmt(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }); }
@@ -478,8 +534,9 @@ function loadLocal() {
     friends = JSON.parse(localStorage.getItem('dt_friends') || '[]');
     cards = JSON.parse(localStorage.getItem('dt_cards') || '[]');
     stls = JSON.parse(localStorage.getItem('dt_stls') || '[]');
+    golds = JSON.parse(localStorage.getItem('dt_golds') || '[]');
     config = JSON.parse(localStorage.getItem('dt_config') || '{"url":"","tab":"Debt_Tracker"}');
-  } catch(e) { emis = []; friends = []; cards = []; stls = []; }
+  } catch(e) { emis = []; friends = []; cards = []; stls = []; golds = []; }
 }
 
 function saveLocal() {
@@ -487,6 +544,7 @@ function saveLocal() {
   localStorage.setItem('dt_friends', JSON.stringify(friends));
   localStorage.setItem('dt_cards', JSON.stringify(cards));
   localStorage.setItem('dt_stls', JSON.stringify(stls));
+  localStorage.setItem('dt_golds', JSON.stringify(golds));
   localStorage.setItem('dt_config', JSON.stringify(config));
   renderAll();
 }
@@ -799,7 +857,7 @@ async function syncToSheets() {
   if (!config.url) { openConfig(); return; }
   setSyncStatus('yellow', 'Syncing...');
   try {
-    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends, cards, stls }) });
+    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends, cards, stls, golds }) });
     setSyncStatus('green', 'Synced — ' + config.tab);
     document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
   } catch(e) { setSyncStatus('red', 'Sync failed — check URL'); }
@@ -811,7 +869,7 @@ async function loadFromSheets() {
   try {
     const r = await fetch(config.url + '?action=load&tab=' + encodeURIComponent(config.tab));
     const json = JSON.parse(await r.text());
-    emis = json.emis || []; friends = json.friends || []; cards = json.cards || []; stls = json.stls || [];
+    emis = json.emis || []; friends = json.friends || []; cards = json.cards || []; stls = json.stls || []; golds = json.golds || [];
     saveLocal();
     setSyncStatus('green', 'Loaded from Sheets — ' + config.tab);
     document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
@@ -985,21 +1043,144 @@ function renderFriends() {
   }).join('');
 }
 
+// ── Gold Loans ────────────────────────────────────────
+let editGoldIdx = null, goldPayIdx = null;
+
+function calcPendingInterest(principal, ratePA, paidUptoStr) {
+  if (!paidUptoStr) return 0;
+  const paidUpto = new Date(paidUptoStr);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysPending = Math.max(0, Math.ceil((today - paidUpto) / (1000*60*60*24)));
+  return Math.round(principal * (ratePA / 100) / 365 * daysPending);
+}
+
+function calcTotalInterestToMaturity(principal, ratePA, paidUptoStr, maturityStr) {
+  if (!paidUptoStr || !maturityStr) return 0;
+  const paidUpto = new Date(paidUptoStr);
+  const maturity = new Date(maturityStr);
+  const days = Math.max(0, Math.ceil((maturity - paidUpto) / (1000*60*60*24)));
+  return Math.round(principal * (ratePA / 100) / 365 * days);
+}
+
+function openAddGold() {
+  editGoldIdx = null;
+  document.getElementById('gold-modal-title').textContent = 'Add Gold Loan';
+  ['gl-lender','gl-grams','gl-principal','gl-rate'].forEach(id => document.getElementById(id).value = '');
+  ['gl-start','gl-maturity','gl-paid-upto'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('modal-gold').classList.add('open');
+}
+function openEditGold(i) {
+  editGoldIdx = i; const g = golds[i];
+  document.getElementById('gold-modal-title').textContent = 'Edit Gold Loan';
+  document.getElementById('gl-lender').value = g.lender;
+  document.getElementById('gl-grams').value = g.grams || '';
+  document.getElementById('gl-principal').value = g.principal;
+  document.getElementById('gl-rate').value = g.ratePA;
+  document.getElementById('gl-start').value = g.startDate;
+  document.getElementById('gl-maturity').value = g.maturityDate;
+  document.getElementById('gl-paid-upto').value = g.intPaidUpto;
+  document.getElementById('modal-gold').classList.add('open');
+}
+function saveGold() {
+  const obj = {
+    lender: document.getElementById('gl-lender').value.trim(),
+    grams: +document.getElementById('gl-grams').value || 0,
+    principal: +document.getElementById('gl-principal').value,
+    ratePA: +document.getElementById('gl-rate').value,
+    startDate: document.getElementById('gl-start').value,
+    maturityDate: document.getElementById('gl-maturity').value,
+    intPaidUpto: document.getElementById('gl-paid-upto').value,
+    closed: false
+  };
+  if (!obj.lender || !obj.principal || !obj.ratePA || !obj.startDate || !obj.maturityDate || !obj.intPaidUpto) {
+    alert('Please fill all required fields'); return;
+  }
+  if (editGoldIdx !== null) golds[editGoldIdx] = obj; else golds.push(obj);
+  closeModal('modal-gold'); saveLocal();
+}
+function deleteGold(i) { if (confirm('Delete this gold loan?')) { golds.splice(i, 1); saveLocal(); } }
+function closeGoldLoan(i) { if (confirm('Mark this gold loan as closed? You\'ve redeemed your gold.')) { golds[i].closed = true; saveLocal(); } }
+
+function openGoldPayModal(i) {
+  goldPayIdx = i; const g = golds[i];
+  const pending = calcPendingInterest(g.principal, g.ratePA, g.intPaidUpto);
+  const dailyInt = Math.round(g.principal * (g.ratePA / 100) / 365);
+  document.getElementById('goldpay-info').innerHTML =
+    '<b>' + g.lender + '</b><br>' +
+    'Principal: <b>' + fmt(g.principal) + '</b><br>' +
+    'Interest paid up to: <b>' + g.intPaidUpto + '</b><br>' +
+    'Pending interest (till today): <b style="color:var(--red-text)">' + fmt(pending) + '</b><br>' +
+    'Daily interest accrual: <b style="color:var(--amber-text)">' + fmt(dailyInt) + '/day</b><br>' +
+    '<span style="font-size:12px;color:var(--text2)">Enter the date up to which you\'ve paid interest now.</span>';
+  document.getElementById('gp-upto').value = new Date().toISOString().split('T')[0];
+  document.getElementById('modal-goldpay').classList.add('open');
+}
+function confirmGoldPay() {
+  const newUpto = document.getElementById('gp-upto').value;
+  if (!newUpto) { alert('Enter the date'); return; }
+  golds[goldPayIdx].intPaidUpto = newUpto;
+  closeModal('modal-goldpay'); saveLocal();
+}
+
+function renderGolds() {
+  const tbody = document.getElementById('gold-body');
+  const empty = document.getElementById('gold-empty');
+  const activeGolds = golds.filter(g => !g.closed);
+  if (!activeGolds.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  const today = new Date(); today.setHours(0,0,0,0);
+  tbody.innerHTML = golds.map((g, i) => {
+    if (g.closed) return '';
+    const pending = calcPendingInterest(g.principal, g.ratePA, g.intPaidUpto);
+    const closureAmt = g.principal + pending;
+    const maturity = new Date(g.maturityDate);
+    const daysToMaturity = Math.ceil((maturity - today) / (1000*60*60*24));
+    const overdue = daysToMaturity < 0;
+    const warning = daysToMaturity <= 30 && !overdue;
+    let daysStr, daysColor;
+    if (overdue) { daysStr = Math.abs(daysToMaturity) + ' days overdue!'; daysColor = 'var(--red-text)'; }
+    else if (warning) { daysStr = daysToMaturity + ' days'; daysColor = 'var(--amber-text)'; }
+    else { daysStr = daysToMaturity + ' days'; daysColor = 'var(--text)'; }
+    const monthlyInt = Math.round(g.principal * (g.ratePA / 100) / 12);
+    return `<tr>
+      <td>${i+1}</td>
+      <td><b>${g.lender}</b></td>
+      <td style="color:var(--text2)">${g.grams ? g.grams + 'g' : '—'}</td>
+      <td style="font-weight:600">${fmt(g.principal)}</td>
+      <td style="color:var(--amber-text)">${g.ratePA}%<br><span style="font-size:11px;color:var(--text2)">${fmt(monthlyInt)}/mo</span></td>
+      <td style="font-size:12px;color:var(--text2)">${g.startDate}</td>
+      <td style="font-size:12px;color:var(--text2)">${g.maturityDate}</td>
+      <td style="font-size:12px;color:var(--text2)">${g.intPaidUpto}</td>
+      <td style="color:var(--red-text);font-weight:600">${fmt(pending)}<br><span style="font-size:11px;color:var(--text2)">since ${g.intPaidUpto}</span></td>
+      <td style="color:var(--red-text);font-weight:700;font-size:14px">${fmt(closureAmt)}</td>
+      <td style="font-weight:600;color:${daysColor}">${daysStr}</td>
+      <td><div class="actions">
+        <button class="btn btn-sm btn-success" onclick="openGoldPayModal(${i})">Pay int.</button>
+        <button class="btn btn-sm" onclick="openEditGold(${i})">Edit</button>
+        <button class="btn btn-sm" onclick="closeGoldLoan(${i})">Close loan</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteGold(${i})">Del</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
 function renderSummary() {
   const emiOutstanding = emis.reduce((s, e) => s + (e.outstanding || 0), 0);
   const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + Math.max(0, f.amount - (f.paidAmount || 0)), 0);
   const ccOutstanding = cards.reduce((s, c) => s + (c.outstanding || 0), 0);
   const stlOutstanding = stls.filter(s => !s.paid).reduce((s, l) => s + (l.totalPayable || 0), 0);
+  const goldOutstanding = golds.filter(g => !g.closed).reduce((s, g) => s + g.principal + calcPendingInterest(g.principal, g.ratePA, g.intPaidUpto), 0);
   const totalPaid = emis.reduce((s, e) => s + (e.paid || 0), 0);
-  document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding + ccOutstanding + stlOutstanding);
+  document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding + ccOutstanding + stlOutstanding + goldOutstanding);
   document.getElementById('s-emi').textContent = fmt(emiOutstanding);
   document.getElementById('s-cc').textContent = fmt(ccOutstanding);
   document.getElementById('s-stl').textContent = fmt(stlOutstanding);
+  document.getElementById('s-gold').textContent = fmt(goldOutstanding);
   document.getElementById('s-friends').textContent = fmt(friendOutstanding);
   document.getElementById('s-paid').textContent = fmt(totalPaid);
 }
 
-function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs(); renderMonthly(); renderSummary(); }
+function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs(); renderGolds(); renderMonthly(); renderSummary(); }
 
 loadLocal();
 renderAll();
