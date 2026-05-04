@@ -188,7 +188,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Card / Bank</th><th>Outstanding</th><th>Min due</th><th>Interest rate</th><th>Billing date</th><th>Last paid</th><th>Actions</th></tr>
+            <tr><th>#</th><th>Card / Bank</th><th>Outstanding</th><th>Monthly payment</th><th>Interest rate</th><th>Billing date</th><th>Last paid</th><th>Actions</th></tr>
           </thead>
           <tbody id="cc-body"></tbody>
         </table>
@@ -203,12 +203,12 @@
   <div class="modal">
     <div class="modal-title" id="cc-modal-title">Add Credit Card</div>
     <div class="form-grid">
-      <div class="form-group"><label>Card / Bank name *</label><input id="cc-name" placeholder="e.g. HDFC Regalia, SBI SimplyCLICK" /></div>
-      <div class="form-group"><label>Current outstanding (₹) *</label><input id="cc-outstanding" type="number" placeholder="e.g. 45000" /></div>
-      <div class="form-group"><label>Monthly interest rate (%) *</label><input id="cc-rate" type="number" step="0.1" placeholder="e.g. 3.5" /></div>
-      <div class="form-group"><label>Credit limit (₹)</label><input id="cc-limit" type="number" placeholder="e.g. 100000" /></div>
-      <div class="form-group"><label>Billing date (day of month)</label><input id="cc-billday" type="number" min="1" max="31" placeholder="e.g. 15" /></div>
-      <div class="form-group"><label>Min due % (default 5%)</label><input id="cc-minpct" type="number" step="0.1" placeholder="5" value="5" /></div>
+      <div class="form-group"><label>Card / Bank name *</label><input id="cc-name" placeholder="e.g. HDFC Regalia, IDFC" /></div>
+      <div class="form-group"><label>Current outstanding (₹) *</label><input id="cc-outstanding" type="number" placeholder="e.g. 97664" /></div>
+      <div class="form-group"><label>Credit limit (₹) *</label><input id="cc-limit" type="number" placeholder="e.g. 100000" /></div>
+      <div class="form-group"><label>Monthly payment you make (₹) *</label><input id="cc-monthlypay" type="number" placeholder="e.g. 5000" /></div>
+      <div class="form-group"><label>Billing date (day of month)</label><input id="cc-billday" type="number" min="1" max="31" placeholder="e.g. 4" /></div>
+      <div class="form-group"><label>Monthly interest rate (%) <span style="color:var(--text3);font-weight:400;">optional</span></label><input id="cc-rate" type="number" step="0.1" placeholder="e.g. 3.5 — from statement" /></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-cc')">Cancel</button>
@@ -223,9 +223,8 @@
     <div class="modal-title">Record Payment</div>
     <div id="ccpay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
     <div class="form-grid" style="grid-template-columns:1fr;">
-      <div class="form-group"><label>Amount you're paying (₹) *</label><input id="ccp-amount" type="number" placeholder="Enter actual amount paid" /></div>
+      <div class="form-group"><label>Amount paying now (₹) *</label><input id="ccp-amount" type="number" placeholder="Enter actual amount paid" /></div>
     </div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:1rem;line-height:1.6;">After payment, interest for next month will be calculated on the remaining balance automatically.</div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-ccpay')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmCCPayment()">Record payment</button>
@@ -586,8 +585,7 @@ let editCCIdx = null, ccPayIdx = null;
 function openAddCC() {
   editCCIdx = null;
   document.getElementById('cc-modal-title').textContent = 'Add Credit Card';
-  ['cc-name','cc-outstanding','cc-rate','cc-limit','cc-billday'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('cc-minpct').value = '5';
+  ['cc-name','cc-outstanding','cc-rate','cc-limit','cc-billday','cc-monthlypay'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('modal-cc').classList.add('open');
 }
 function openEditCC(i) {
@@ -595,24 +593,24 @@ function openEditCC(i) {
   document.getElementById('cc-modal-title').textContent = 'Edit Credit Card';
   document.getElementById('cc-name').value = c.name;
   document.getElementById('cc-outstanding').value = c.outstanding;
-  document.getElementById('cc-rate').value = c.monthlyRate;
+  document.getElementById('cc-rate').value = c.monthlyRate || '';
   document.getElementById('cc-limit').value = c.limit || '';
   document.getElementById('cc-billday').value = c.billDay || '';
-  document.getElementById('cc-minpct').value = c.minPct || 5;
+  document.getElementById('cc-monthlypay').value = c.monthlyPayment || '';
   document.getElementById('modal-cc').classList.add('open');
 }
 function saveCC() {
   const obj = {
     name: document.getElementById('cc-name').value.trim(),
     outstanding: +document.getElementById('cc-outstanding').value,
-    monthlyRate: +document.getElementById('cc-rate').value,
+    monthlyPayment: +document.getElementById('cc-monthlypay').value,
+    monthlyRate: +document.getElementById('cc-rate').value || 0,
     limit: +document.getElementById('cc-limit').value || 0,
     billDay: +document.getElementById('cc-billday').value || 0,
-    minPct: +document.getElementById('cc-minpct').value || 5,
     lastPaid: 0,
     lastPaidDate: ''
   };
-  if (!obj.name || !obj.outstanding || !obj.monthlyRate) { alert('Name, outstanding and interest rate are required'); return; }
+  if (!obj.name || !obj.outstanding || !obj.monthlyPayment) { alert('Name, outstanding and monthly payment are required'); return; }
   if (editCCIdx !== null) { obj.lastPaid = cards[editCCIdx].lastPaid; obj.lastPaidDate = cards[editCCIdx].lastPaidDate; cards[editCCIdx] = obj; }
   else cards.push(obj);
   closeModal('modal-cc'); saveLocal();
@@ -620,23 +618,22 @@ function saveCC() {
 function deleteCC(i) { if (confirm('Delete this card?')) { cards.splice(i, 1); saveLocal(); } }
 function openCCPayModal(i) {
   ccPayIdx = i; const c = cards[i];
-  const minDue = Math.max(200, c.outstanding * (c.minPct / 100));
-  const monthlyInterest = c.outstanding * (c.monthlyRate / 100);
+  const interest = c.monthlyRate ? c.outstanding * (c.monthlyRate / 100) : 0;
   document.getElementById('ccpay-info').innerHTML =
     '<b>' + c.name + '</b><br>' +
     'Current outstanding: <b style="color:var(--red-text)">' + fmt(c.outstanding) + '</b><br>' +
-    'Interest this month (' + c.monthlyRate + '%): <b style="color:var(--red-text)">' + fmt(monthlyInterest) + '</b><br>' +
-    'Minimum due (~' + c.minPct + '%): <b>' + fmt(minDue) + '</b><br>' +
-    '<span style="font-size:12px;color:var(--text2)">Paying only min due leaves ' + fmt(c.outstanding - minDue) + ' accruing more interest next month.</span>';
-  document.getElementById('ccp-amount').value = '';
+    (c.monthlyRate ? 'Interest this month (' + c.monthlyRate + '%/mo): <b style="color:var(--red-text)">' + fmt(interest) + '</b><br>' : '') +
+    'Your usual payment: <b>' + fmt(c.monthlyPayment) + '</b><br>' +
+    '<span style="font-size:12px;color:var(--text2)">You can change the amount below if paying differently this month.</span>';
+  document.getElementById('ccp-amount').value = c.monthlyPayment;
   document.getElementById('modal-ccpay').classList.add('open');
 }
 function confirmCCPayment() {
   const amt = +document.getElementById('ccp-amount').value;
   if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
   const c = cards[ccPayIdx];
-  const monthlyInterest = c.outstanding * (c.monthlyRate / 100);
-  c.outstanding = Math.max(0, c.outstanding - amt + monthlyInterest);
+  const interest = c.monthlyRate ? c.outstanding * (c.monthlyRate / 100) : 0;
+  c.outstanding = Math.max(0, c.outstanding - amt + interest);
   c.lastPaid = amt;
   c.lastPaidDate = new Date().toLocaleDateString('en-IN');
   closeModal('modal-ccpay'); saveLocal();
@@ -648,14 +645,14 @@ function renderCCs() {
   if (!cards.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = cards.map((c, i) => {
-    const minDue = Math.max(200, c.outstanding * (c.minPct / 100));
-    const annualRate = c.monthlyRate * 12;
+    const rateStr = c.monthlyRate ? c.monthlyRate + '%/mo<br><span style="font-size:11px;color:var(--text2)">' + (c.monthlyRate*12).toFixed(1) + '% p.a.</span>' : '<span style="color:var(--text3)">—</span>';
+    const utilPct = c.limit ? Math.round(c.outstanding / c.limit * 100) : null;
     return `<tr>
       <td>${i+1}</td>
-      <td><b>${c.name}</b>${c.limit ? '<br><span style="font-size:11px;color:var(--text2)">Limit: ' + fmt(c.limit) + '</span>' : ''}</td>
+      <td><b>${c.name}</b>${c.limit ? '<br><span style="font-size:11px;color:var(--text2)">Limit: ' + fmt(c.limit) + (utilPct !== null ? ' · ' + utilPct + '% used' : '') + '</span>' : ''}</td>
       <td style="color:var(--red-text);font-weight:600;">${fmt(c.outstanding)}</td>
-      <td style="color:var(--amber-text);">${fmt(minDue)}<br><span style="font-size:11px;color:var(--text2)">${c.minPct}% of o/s</span></td>
-      <td style="color:var(--red-text);">${c.monthlyRate}%/mo<br><span style="font-size:11px;color:var(--text2)">${annualRate.toFixed(1)}% p.a.</span></td>
+      <td style="font-weight:600;color:var(--green-val);">${fmt(c.monthlyPayment)}<br><span style="font-size:11px;color:var(--text2)">usual payment</span></td>
+      <td>${rateStr}</td>
       <td style="color:var(--text2);font-size:12px;">${c.billDay ? c.billDay + 'th' : '—'}</td>
       <td style="font-size:12px;">${c.lastPaid ? fmt(c.lastPaid) + '<br><span style="color:var(--text2)">' + c.lastPaidDate + '</span>' : '—'}</td>
       <td><div class="actions">
@@ -788,7 +785,7 @@ function renderSummary() {
 
 function renderMonthly() {
   const emiTotal = emis.reduce((s, e) => s + (e.emi || 0), 0);
-  const ccMinTotal = cards.reduce((s, c) => s + Math.max(200, c.outstanding * (c.minPct / 100)), 0);
+  const ccMinTotal = cards.reduce((s, c) => s + (c.monthlyPayment || 0), 0);
   const total = emiTotal + ccMinTotal;
   document.getElementById('m-total').textContent = fmt(total);
   document.getElementById('m-emi').textContent = fmt(emiTotal);
@@ -798,8 +795,7 @@ function renderMonthly() {
   const chips = [
     ...emis.map(e => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;">${e.name}</span><span style="color:var(--text2)">${fmt(e.emi)}/mo</span></span>`),
     ...cards.map(c => {
-      const min = Math.max(200, c.outstanding * (c.minPct / 100));
-      return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber-bg);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;color:var(--amber-text)">${c.name}</span><span style="color:var(--amber-text)">${fmt(min)} min</span></span>`;
+      return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber-bg);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;color:var(--amber-text)">${c.name}</span><span style="color:var(--amber-text)">${fmt(c.monthlyPayment)}/mo</span></span>`;
     })
   ];
   breakdown.innerHTML = chips.length ? chips.join('') : '<span style="font-size:13px;color:var(--text3);">No active loans or cards.</span>';
