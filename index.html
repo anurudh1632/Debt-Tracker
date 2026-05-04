@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.6</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.7</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -1283,16 +1283,17 @@ function renderGolds() {
 }
 
 function renderMonthly() {
-  const emiTotal = emis.reduce((s, e) => s + (e.emi || 0), 0);
+  const activeEmis = emis.filter(e => e.tenure > 0 && e.outstanding > 0);
+  const emiTotal = activeEmis.reduce((s, e) => s + (e.emi || 0), 0);
   const ccMinTotal = cards.reduce((s, c) => s + (c.monthlyPayment || 0), 0);
   const total = emiTotal + ccMinTotal;
   document.getElementById('m-total').textContent = fmt(total);
   document.getElementById('m-emi').textContent = fmt(emiTotal);
   document.getElementById('m-cc').textContent = fmt(ccMinTotal);
-  document.getElementById('m-count').textContent = emis.length + cards.length;
+  document.getElementById('m-count').textContent = activeEmis.length + cards.length;
   const breakdown = document.getElementById('monthly-breakdown');
   const chips = [
-    ...emis.map(e => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;">${e.name}</span><span style="color:var(--text2)">${fmt(e.emi)}/mo</span></span>`),
+    ...activeEmis.map(e => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;">${e.name}</span><span style="color:var(--text2)">${fmt(e.emi)}/mo</span></span>`),
     ...cards.map(c => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber-bg);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;color:var(--amber-text)">${c.name}</span><span style="color:var(--amber-text)">${fmt(c.monthlyPayment)}/mo</span></span>`)
   ];
   breakdown.innerHTML = chips.length ? chips.join('') : '<span style="font-size:13px;color:var(--text3);">No active loans or cards.</span>';
@@ -1322,8 +1323,10 @@ function renderThisMonth() {
   let paidCount = 0, overdueCount = 0, upcomingCount = 0;
   let rows = '';
 
-  // Sort by day for display
-  const sorted = emis.map((e, i) => ({...e, _orig: i})).sort((a, b) => (a.day || 99) - (b.day || 99));
+  // Sort by day for display, exclude closed loans
+  const sorted = emis.map((e, i) => ({...e, _orig: i}))
+    .filter(e => e.tenure > 0 && e.outstanding > 0)
+    .sort((a, b) => (a.day || 99) - (b.day || 99));
 
   sorted.forEach(e => {
     const isPaid = e.monthPaid && e.monthPaid[mk];
