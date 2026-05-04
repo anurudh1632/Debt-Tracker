@@ -94,6 +94,7 @@
   <div class="summary-grid">
     <div class="stat"><div class="stat-label">Total outstanding</div><div class="stat-value danger" id="s-total">₹0</div></div>
     <div class="stat"><div class="stat-label">EMI debt</div><div class="stat-value" id="s-emi">₹0</div></div>
+    <div class="stat"><div class="stat-label">Credit card debt</div><div class="stat-value" id="s-cc">₹0</div></div>
     <div class="stat"><div class="stat-label">Friends debt</div><div class="stat-value" id="s-friends">₹0</div></div>
     <div class="stat"><div class="stat-label">Total paid (EMIs)</div><div class="stat-value success" id="s-paid">₹0</div></div>
   </div>
@@ -143,6 +144,61 @@
         </table>
         <div class="empty" id="friend-empty">No friend debts added yet.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Credit Cards Section -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Credit Cards</div>
+      <button class="btn btn-sm btn-primary" onclick="openAddCC()">+ Add card</button>
+    </div>
+    <div class="card-body">
+      <div class="info-box" style="background:#FAECE7;color:#993C1D;">Credit card interest accrues on unpaid balance every month (typically 2.5–3.5% per month = 36–42% p.a.). Paying only minimum due means the outstanding barely reduces. Record your actual payment each month to track correctly.</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Card / Bank</th><th>Outstanding</th><th>Min due</th><th>Interest rate</th><th>Billing date</th><th>Last paid</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="cc-body"></tbody>
+        </table>
+        <div class="empty" id="cc-empty">No credit cards added yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Credit Card Modal -->
+<div class="overlay" id="modal-cc">
+  <div class="modal">
+    <div class="modal-title" id="cc-modal-title">Add Credit Card</div>
+    <div class="form-grid">
+      <div class="form-group"><label>Card / Bank name *</label><input id="cc-name" placeholder="e.g. HDFC Regalia, SBI SimplyCLICK" /></div>
+      <div class="form-group"><label>Current outstanding (₹) *</label><input id="cc-outstanding" type="number" placeholder="e.g. 45000" /></div>
+      <div class="form-group"><label>Monthly interest rate (%) *</label><input id="cc-rate" type="number" step="0.1" placeholder="e.g. 3.5" /></div>
+      <div class="form-group"><label>Credit limit (₹)</label><input id="cc-limit" type="number" placeholder="e.g. 100000" /></div>
+      <div class="form-group"><label>Billing date (day of month)</label><input id="cc-billday" type="number" min="1" max="31" placeholder="e.g. 15" /></div>
+      <div class="form-group"><label>Min due % (default 5%)</label><input id="cc-minpct" type="number" step="0.1" placeholder="5" value="5" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-cc')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCC()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Credit Card Pay Modal -->
+<div class="overlay" id="modal-ccpay">
+  <div class="modal">
+    <div class="modal-title">Record Payment</div>
+    <div id="ccpay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
+    <div class="form-grid" style="grid-template-columns:1fr;">
+      <div class="form-group"><label>Amount you're paying (₹) *</label><input id="ccp-amount" type="number" placeholder="Enter actual amount paid" /></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:1rem;line-height:1.6;">After payment, interest for next month will be calculated on the remaining balance automatically.</div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-ccpay')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmCCPayment()">Record payment</button>
     </div>
   </div>
 </div>
@@ -276,7 +332,7 @@ function ok(msg) {
     .setMimeType(ContentService.MimeType.TEXT);
 }`;
 
-let emis = [], friends = [], config = { url: '', tab: 'Debt_Tracker' };
+let emis = [], friends = [], cards = [], config = { url: '', tab: 'Debt_Tracker' };
 let editEMIIdx = null, payIdx = null;
 
 function fmt(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 }); }
@@ -297,13 +353,15 @@ function loadLocal() {
   try {
     emis = JSON.parse(localStorage.getItem('dt_emis') || '[]');
     friends = JSON.parse(localStorage.getItem('dt_friends') || '[]');
+    cards = JSON.parse(localStorage.getItem('dt_cards') || '[]');
     config = JSON.parse(localStorage.getItem('dt_config') || '{"url":"","tab":"Debt_Tracker"}');
-  } catch(e) { emis = []; friends = []; }
+  } catch(e) { emis = []; friends = []; cards = []; }
 }
 
 function saveLocal() {
   localStorage.setItem('dt_emis', JSON.stringify(emis));
   localStorage.setItem('dt_friends', JSON.stringify(friends));
+  localStorage.setItem('dt_cards', JSON.stringify(cards));
   localStorage.setItem('dt_config', JSON.stringify(config));
   renderAll();
 }
@@ -404,6 +462,91 @@ function confirmFriendPayment() {
 function toggleFriendPaid(i) { friends[i].paid = !friends[i].paid; if (!friends[i].paid) friends[i].paidAmount = 0; saveLocal(); }
 function deleteFriend(i) { if (confirm('Delete?')) { friends.splice(i, 1); saveLocal(); } }
 
+let editCCIdx = null, ccPayIdx = null;
+function openAddCC() {
+  editCCIdx = null;
+  document.getElementById('cc-modal-title').textContent = 'Add Credit Card';
+  ['cc-name','cc-outstanding','cc-rate','cc-limit','cc-billday'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cc-minpct').value = '5';
+  document.getElementById('modal-cc').classList.add('open');
+}
+function openEditCC(i) {
+  editCCIdx = i; const c = cards[i];
+  document.getElementById('cc-modal-title').textContent = 'Edit Credit Card';
+  document.getElementById('cc-name').value = c.name;
+  document.getElementById('cc-outstanding').value = c.outstanding;
+  document.getElementById('cc-rate').value = c.monthlyRate;
+  document.getElementById('cc-limit').value = c.limit || '';
+  document.getElementById('cc-billday').value = c.billDay || '';
+  document.getElementById('cc-minpct').value = c.minPct || 5;
+  document.getElementById('modal-cc').classList.add('open');
+}
+function saveCC() {
+  const obj = {
+    name: document.getElementById('cc-name').value.trim(),
+    outstanding: +document.getElementById('cc-outstanding').value,
+    monthlyRate: +document.getElementById('cc-rate').value,
+    limit: +document.getElementById('cc-limit').value || 0,
+    billDay: +document.getElementById('cc-billday').value || 0,
+    minPct: +document.getElementById('cc-minpct').value || 5,
+    lastPaid: 0,
+    lastPaidDate: ''
+  };
+  if (!obj.name || !obj.outstanding || !obj.monthlyRate) { alert('Name, outstanding and interest rate are required'); return; }
+  if (editCCIdx !== null) { obj.lastPaid = cards[editCCIdx].lastPaid; obj.lastPaidDate = cards[editCCIdx].lastPaidDate; cards[editCCIdx] = obj; }
+  else cards.push(obj);
+  closeModal('modal-cc'); saveLocal();
+}
+function deleteCC(i) { if (confirm('Delete this card?')) { cards.splice(i, 1); saveLocal(); } }
+function openCCPayModal(i) {
+  ccPayIdx = i; const c = cards[i];
+  const minDue = Math.max(200, c.outstanding * (c.minPct / 100));
+  const monthlyInterest = c.outstanding * (c.monthlyRate / 100);
+  document.getElementById('ccpay-info').innerHTML =
+    '<b>' + c.name + '</b><br>' +
+    'Current outstanding: <b style="color:var(--red-text)">' + fmt(c.outstanding) + '</b><br>' +
+    'Interest this month (' + c.monthlyRate + '%): <b style="color:var(--red-text)">' + fmt(monthlyInterest) + '</b><br>' +
+    'Minimum due (~' + c.minPct + '%): <b>' + fmt(minDue) + '</b><br>' +
+    '<span style="font-size:12px;color:var(--text2)">Paying only min due leaves ' + fmt(c.outstanding - minDue) + ' accruing more interest next month.</span>';
+  document.getElementById('ccp-amount').value = '';
+  document.getElementById('modal-ccpay').classList.add('open');
+}
+function confirmCCPayment() {
+  const amt = +document.getElementById('ccp-amount').value;
+  if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+  const c = cards[ccPayIdx];
+  const monthlyInterest = c.outstanding * (c.monthlyRate / 100);
+  c.outstanding = Math.max(0, c.outstanding - amt + monthlyInterest);
+  c.lastPaid = amt;
+  c.lastPaidDate = new Date().toLocaleDateString('en-IN');
+  closeModal('modal-ccpay'); saveLocal();
+}
+
+function renderCCs() {
+  const tbody = document.getElementById('cc-body');
+  const empty = document.getElementById('cc-empty');
+  if (!cards.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = cards.map((c, i) => {
+    const minDue = Math.max(200, c.outstanding * (c.minPct / 100));
+    const annualRate = c.monthlyRate * 12;
+    return `<tr>
+      <td>${i+1}</td>
+      <td><b>${c.name}</b>${c.limit ? '<br><span style="font-size:11px;color:var(--text2)">Limit: ' + fmt(c.limit) + '</span>' : ''}</td>
+      <td style="color:var(--red-text);font-weight:600;">${fmt(c.outstanding)}</td>
+      <td style="color:var(--amber-text);">${fmt(minDue)}<br><span style="font-size:11px;color:var(--text2)">${c.minPct}% of o/s</span></td>
+      <td style="color:var(--red-text);">${c.monthlyRate}%/mo<br><span style="font-size:11px;color:var(--text2)">${annualRate.toFixed(1)}% p.a.</span></td>
+      <td style="color:var(--text2);font-size:12px;">${c.billDay ? c.billDay + 'th' : '—'}</td>
+      <td style="font-size:12px;">${c.lastPaid ? fmt(c.lastPaid) + '<br><span style="color:var(--text2)">' + c.lastPaidDate + '</span>' : '—'}</td>
+      <td><div class="actions">
+        <button class="btn btn-sm btn-success" onclick="openCCPayModal(${i})">Pay</button>
+        <button class="btn btn-sm" onclick="openEditCC(${i})">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteCC(${i})">Del</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
 function openConfig() {
   document.getElementById('cfg-url').value = config.url;
   document.getElementById('cfg-tab').value = config.tab;
@@ -433,7 +576,7 @@ async function syncToSheets() {
   if (!config.url) { openConfig(); return; }
   setSyncStatus('yellow', 'Syncing...');
   try {
-    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends }) });
+    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends, cards }) });
     setSyncStatus('green', 'Synced — ' + config.tab);
     document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
   } catch(e) { setSyncStatus('red', 'Sync failed — check URL'); }
@@ -445,7 +588,7 @@ async function loadFromSheets() {
   try {
     const r = await fetch(config.url + '?action=load&tab=' + encodeURIComponent(config.tab));
     const json = JSON.parse(await r.text());
-    emis = json.emis || []; friends = json.friends || [];
+    emis = json.emis || []; friends = json.friends || []; cards = json.cards || [];
     saveLocal();
     setSyncStatus('green', 'Loaded from Sheets — ' + config.tab);
     document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
@@ -514,14 +657,16 @@ function renderFriends() {
 function renderSummary() {
   const emiOutstanding = emis.reduce((s, e) => s + (e.outstanding || 0), 0);
   const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + Math.max(0, f.amount - (f.paidAmount || 0)), 0);
+  const ccOutstanding = cards.reduce((s, c) => s + (c.outstanding || 0), 0);
   const totalPaid = emis.reduce((s, e) => s + (e.paid || 0), 0);
-  document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding);
+  document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding + ccOutstanding);
   document.getElementById('s-emi').textContent = fmt(emiOutstanding);
+  document.getElementById('s-cc').textContent = fmt(ccOutstanding);
   document.getElementById('s-friends').textContent = fmt(friendOutstanding);
   document.getElementById('s-paid').textContent = fmt(totalPaid);
 }
 
-function renderAll() { renderEMIs(); renderFriends(); renderSummary(); }
+function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSummary(); }
 
 loadLocal();
 renderAll();
