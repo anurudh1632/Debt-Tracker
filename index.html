@@ -60,6 +60,7 @@
   .badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 500; }
   .badge-pending { background: #FAECE7; color: #993C1D; }
   .badge-paid { background: var(--green-bg); color: var(--green-text); }
+  .badge-partial { background: var(--amber-bg); color: var(--amber-text); }
   .actions { display: flex; gap: 5px; flex-wrap: nowrap; }
   .status-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); margin-bottom: 1.5rem; background: var(--bg); border-radius: var(--radius); padding: 10px 14px; border: 0.5px solid var(--border); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: #888; display: inline-block; flex-shrink: 0; }
@@ -136,7 +137,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Name</th><th>Amount</th><th>Date</th><th>Notes</th><th>Status</th><th>Actions</th></tr>
+            <tr><th>#</th><th>Name</th><th>Borrowed</th><th>Paid</th><th>Remaining</th><th>Date</th><th>Notes</th><th>Status</th><th>Actions</th></tr>
           </thead>
           <tbody id="friend-body"></tbody>
         </table>
@@ -178,6 +179,21 @@
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-friend')">Cancel</button>
       <button class="btn btn-primary" onclick="saveFriend()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Friend Partial Payment Modal -->
+<div class="overlay" id="modal-fpay">
+  <div class="modal">
+    <div class="modal-title">Record Payment</div>
+    <div id="fpay-info" style="font-size:14px;line-height:1.8;margin-bottom:1rem;"></div>
+    <div class="form-grid" style="grid-template-columns:1fr;">
+      <div class="form-group"><label>Amount paying now (₹) *</label><input id="fp-amount" type="number" placeholder="e.g. 2000" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-fpay')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmFriendPayment()">Record payment</button>
     </div>
   </div>
 </div>
@@ -355,6 +371,7 @@ function saveFriend() {
   const obj = {
     name: document.getElementById('f-name').value.trim(),
     amount: +document.getElementById('f-amount').value,
+    paidAmount: 0,
     date: document.getElementById('f-date').value,
     notes: document.getElementById('f-notes').value.trim(),
     paid: false
@@ -363,7 +380,28 @@ function saveFriend() {
   friends.push(obj); closeModal('modal-friend'); saveLocal();
 }
 
-function toggleFriendPaid(i) { friends[i].paid = !friends[i].paid; saveLocal(); }
+let friendPayIdx = null;
+function openFriendPayModal(i) {
+  friendPayIdx = i;
+  const f = friends[i];
+  const remaining = f.amount - (f.paidAmount || 0);
+  document.getElementById('fpay-info').innerHTML =
+    '<b>' + f.name + '</b><br>' +
+    'Total borrowed: <b>' + fmt(f.amount) + '</b><br>' +
+    'Already paid: <b style="color:var(--green-val)">' + fmt(f.paidAmount || 0) + '</b><br>' +
+    'Remaining: <b style="color:var(--red-text)">' + fmt(remaining) + '</b>';
+  document.getElementById('fp-amount').value = '';
+  document.getElementById('modal-fpay').classList.add('open');
+}
+function confirmFriendPayment() {
+  const amt = +document.getElementById('fp-amount').value;
+  if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+  const f = friends[friendPayIdx];
+  f.paidAmount = (f.paidAmount || 0) + amt;
+  if (f.paidAmount >= f.amount) { f.paidAmount = f.amount; f.paid = true; }
+  closeModal('modal-fpay'); saveLocal();
+}
+function toggleFriendPaid(i) { friends[i].paid = !friends[i].paid; if (!friends[i].paid) friends[i].paidAmount = 0; saveLocal(); }
 function deleteFriend(i) { if (confirm('Delete?')) { friends.splice(i, 1); saveLocal(); } }
 
 function openConfig() {
@@ -452,15 +490,21 @@ function renderFriends() {
   if (!friends.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = friends.map((f, i) => {
+    const paidAmt = f.paidAmount || 0;
+    const remaining = Math.max(0, f.amount - paidAmt);
+    const status = f.paid ? 'badge-paid' : (paidAmt > 0 ? 'badge-partial' : 'badge-pending');
+    const statusText = f.paid ? 'Cleared' : (paidAmt > 0 ? 'Partial' : 'Pending');
     return `<tr>
       <td>${i+1}</td>
       <td><b>${f.name}</b></td>
-      <td style="${f.paid ? 'text-decoration:line-through;color:var(--text3)' : 'font-weight:600'}">${fmt(f.amount)}</td>
+      <td style="color:var(--text2)">${fmt(f.amount)}</td>
+      <td style="color:var(--green-val);font-weight:600;">${fmt(paidAmt)}</td>
+      <td style="color:${remaining > 0 ? 'var(--red-text)' : 'var(--green-val)'};font-weight:600;">${fmt(remaining)}</td>
       <td style="color:var(--text2);font-size:12px;">${f.date || '—'}</td>
       <td style="color:var(--text2);font-size:12px;">${f.notes || '—'}</td>
-      <td><span class="badge ${f.paid ? 'badge-paid' : 'badge-pending'}">${f.paid ? 'Cleared' : 'Pending'}</span></td>
+      <td><span class="badge ${status}">${statusText}</span></td>
       <td><div class="actions">
-        <button class="btn btn-sm" onclick="toggleFriendPaid(${i})">${f.paid ? 'Undo' : 'Mark paid'}</button>
+        ${!f.paid ? `<button class="btn btn-sm btn-success" onclick="openFriendPayModal(${i})">Pay</button>` : `<button class="btn btn-sm" onclick="toggleFriendPaid(${i})">Undo</button>`}
         <button class="btn btn-sm btn-danger" onclick="deleteFriend(${i})">Del</button>
       </div></td>
     </tr>`;
@@ -469,7 +513,7 @@ function renderFriends() {
 
 function renderSummary() {
   const emiOutstanding = emis.reduce((s, e) => s + (e.outstanding || 0), 0);
-  const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + (f.amount || 0), 0);
+  const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + Math.max(0, f.amount - (f.paidAmount || 0)), 0);
   const totalPaid = emis.reduce((s, e) => s + (e.paid || 0), 0);
   document.getElementById('s-total').textContent = fmt(emiOutstanding + friendOutstanding);
   document.getElementById('s-emi').textContent = fmt(emiOutstanding);
