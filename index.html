@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.4</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.5</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -132,8 +132,50 @@
           <div style="font-size:18px;font-weight:600;" id="m-count">0</div>
         </div>
       </div>
-      <!-- Per-loan breakdown -->
       <div id="monthly-breakdown" style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:8px;"></div>
+    </div>
+  </div>
+
+  <!-- This Month Tracker -->
+  <div class="card" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+      <div class="card-title">This month's EMI tracker</div>
+      <div style="font-size:12px;color:var(--text2);" id="this-month-label"></div>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <!-- Progress bar + numbers -->
+      <div style="padding:16px 18px;border-bottom:0.5px solid var(--border);">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px;">
+          <div style="background:var(--bg2);border-radius:var(--radius);padding:12px 14px;">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Total this month</div>
+            <div style="font-size:18px;font-weight:700;" id="tm-total">₹0</div>
+          </div>
+          <div style="background:#EAF3DE;border-radius:var(--radius);padding:12px 14px;">
+            <div style="font-size:11px;color:#3B6D11;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Paid ✓</div>
+            <div style="font-size:18px;font-weight:700;color:#0F6E56;" id="tm-paid">₹0</div>
+            <div style="font-size:11px;color:#3B6D11;" id="tm-paid-count"></div>
+          </div>
+          <div style="background:#FAECE7;border-radius:var(--radius);padding:12px 14px;">
+            <div style="font-size:11px;color:#993C1D;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Overdue !</div>
+            <div style="font-size:18px;font-weight:700;color:#A32D2D;" id="tm-overdue">₹0</div>
+            <div style="font-size:11px;color:#993C1D;" id="tm-overdue-count"></div>
+          </div>
+          <div style="background:#FAEEDA;border-radius:var(--radius);padding:12px 14px;">
+            <div style="font-size:11px;color:#854F0B;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Upcoming</div>
+            <div style="font-size:18px;font-weight:700;color:#854F0B;" id="tm-upcoming">₹0</div>
+            <div style="font-size:11px;color:#854F0B;" id="tm-upcoming-count"></div>
+          </div>
+        </div>
+        <!-- Progress bar -->
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="flex:1;height:8px;background:var(--bg3);border-radius:999px;overflow:hidden;">
+            <div id="tm-progress-bar" style="height:100%;background:#1D9E75;border-radius:999px;transition:width 0.4s;width:0%;"></div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:var(--text2);min-width:36px;" id="tm-pct">0%</div>
+        </div>
+      </div>
+      <!-- Per EMI rows -->
+      <div id="tm-rows" style="padding:8px 0;"></div>
     </div>
   </div>
 
@@ -1251,6 +1293,84 @@ function renderMonthly() {
   breakdown.innerHTML = chips.length ? chips.join('') : '<span style="font-size:13px;color:var(--text3);">No active loans or cards.</span>';
 }
 
+// ── This Month Tracker ───────────────────────────────
+function getMonthKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+function toggleMonthPaid(origIdx) {
+  const mk = getMonthKey();
+  if (!emis[origIdx].monthPaid) emis[origIdx].monthPaid = {};
+  emis[origIdx].monthPaid[mk] = !emis[origIdx].monthPaid[mk];
+  saveLocal();
+}
+
+function renderThisMonth() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dayOfMonth = today.getDate();
+  const mk = getMonthKey();
+  const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });
+  document.getElementById('this-month-label').textContent = monthName;
+
+  let totalAmt = 0, paidAmt = 0, overdueAmt = 0, upcomingAmt = 0;
+  let paidCount = 0, overdueCount = 0, upcomingCount = 0;
+  let rows = '';
+
+  // Sort by day for display
+  const sorted = emis.map((e, i) => ({...e, _orig: i})).sort((a, b) => (a.day || 99) - (b.day || 99));
+
+  sorted.forEach(e => {
+    const isPaid = e.monthPaid && e.monthPaid[mk];
+    const isDue = e.day <= dayOfMonth;
+    const isOverdue = isDue && !isPaid;
+    const isUpcoming = !isDue && !isPaid;
+    totalAmt += e.emi;
+    if (isPaid) { paidAmt += e.emi; paidCount++; }
+    else if (isOverdue) { overdueAmt += e.emi; overdueCount++; }
+    else { upcomingAmt += e.emi; upcomingCount++; }
+
+    let statusBadge, statusBg, btnHtml;
+    if (isPaid) {
+      statusBadge = '<span style="background:#EAF3DE;color:#3B6D11;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:600;">Paid ✓</span>';
+      statusBg = '';
+      btnHtml = `<button class="btn btn-sm" onclick="toggleMonthPaid(${e._orig})" style="font-size:11px;">Undo</button>`;
+    } else if (isOverdue) {
+      statusBadge = '<span style="background:#FAECE7;color:#993C1D;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:600;">Overdue!</span>';
+      statusBg = 'background:rgba(226,75,74,0.03);';
+      btnHtml = `<button class="btn btn-sm btn-success" onclick="toggleMonthPaid(${e._orig})" style="font-size:11px;">Mark paid</button>`;
+    } else {
+      statusBadge = '<span style="background:#FAEEDA;color:#854F0B;font-size:11px;padding:2px 10px;border-radius:999px;font-weight:600;">' + ordinal(e.day) + ' — upcoming</span>';
+      statusBg = '';
+      btnHtml = `<button class="btn btn-sm" onclick="toggleMonthPaid(${e._orig})" style="font-size:11px;">Mark paid early</button>`;
+    }
+
+    rows += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:0.5px solid var(--border);${statusBg}flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="font-size:13px;font-weight:600;min-width:130px;">${e.name}</div>
+        <div style="font-size:13px;font-weight:700;${isPaid ? 'color:var(--green-val)' : isOverdue ? 'color:var(--red-text)' : 'color:var(--text)'}">${fmt(e.emi)}</div>
+        <div style="font-size:12px;color:var(--text2);">${ordinal(e.day)} every month</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        ${statusBadge}
+        ${btnHtml}
+      </div>
+    </div>`;
+  });
+
+  const pct = totalAmt > 0 ? Math.round((paidAmt / totalAmt) * 100) : 0;
+  document.getElementById('tm-total').textContent = fmt(totalAmt);
+  document.getElementById('tm-paid').textContent = fmt(paidAmt);
+  document.getElementById('tm-paid-count').textContent = paidCount + ' loan' + (paidCount !== 1 ? 's' : '');
+  document.getElementById('tm-overdue').textContent = fmt(overdueAmt);
+  document.getElementById('tm-overdue-count').textContent = overdueCount + ' loan' + (overdueCount !== 1 ? 's' : '');
+  document.getElementById('tm-upcoming').textContent = fmt(upcomingAmt);
+  document.getElementById('tm-upcoming-count').textContent = upcomingCount + ' loan' + (upcomingCount !== 1 ? 's' : '');
+  document.getElementById('tm-progress-bar').style.width = pct + '%';
+  document.getElementById('tm-pct').textContent = pct + '%';
+  document.getElementById('tm-rows').innerHTML = rows || '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:13px;">No EMIs added yet.</div>';
+}
+
 function renderSummary() {
   const emiOutstanding = emis.reduce((s, e) => s + (e.outstanding || 0), 0);
   const friendOutstanding = friends.filter(f => !f.paid).reduce((s, f) => s + Math.max(0, f.amount - (f.paidAmount || 0)), 0);
@@ -1273,7 +1393,7 @@ function renderSummary() {
   document.getElementById('s-paid').textContent = fmt(totalPaid);
 }
 
-function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs(); renderGolds(); renderMonthly(); renderSummary(); }
+function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs(); renderGolds(); renderMonthly(); renderThisMonth(); renderSummary(); }
 
 loadLocal();
 renderAll();
