@@ -477,18 +477,21 @@ function doGet(e) {
 
 function doPost(e) {
   const data = JSON.parse(e.postData.contents);
-  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends);
+  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends, data.cards, data.stls, data.golds);
   return ok('unknown');
 }
 
-function saveData(tabName, emis, friends) {
+function saveData(tabName, emis, friends, cards, stls, golds) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let sheet = ss.getSheetByName(tabName);
   if (!sheet) sheet = ss.insertSheet(tabName);
   sheet.clearContents();
   sheet.appendRow(['TYPE', 'JSON']);
-  sheet.appendRow(['EMIS', JSON.stringify(emis)]);
-  sheet.appendRow(['FRIENDS', JSON.stringify(friends)]);
+  sheet.appendRow(['EMIS', JSON.stringify(emis || [])]);
+  sheet.appendRow(['FRIENDS', JSON.stringify(friends || [])]);
+  sheet.appendRow(['CARDS', JSON.stringify(cards || [])]);
+  sheet.appendRow(['STLS', JSON.stringify(stls || [])]);
+  sheet.appendRow(['GOLDS', JSON.stringify(golds || [])]);
   sheet.appendRow(['SYNCED_AT', new Date().toISOString()]);
   return ok('saved');
 }
@@ -496,14 +499,17 @@ function saveData(tabName, emis, friends) {
 function loadData(tabName) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(tabName);
-  if (!sheet) return ok(JSON.stringify({emis:[], friends:[]}));
+  if (!sheet) return ok(JSON.stringify({emis:[], friends:[], cards:[], stls:[], golds:[]}));
   const rows = sheet.getDataRange().getValues();
-  let emis = [], friends = [];
+  let emis = [], friends = [], cards = [], stls = [], golds = [];
   rows.forEach(r => {
     if (r[0] === 'EMIS') emis = JSON.parse(r[1] || '[]');
     if (r[0] === 'FRIENDS') friends = JSON.parse(r[1] || '[]');
+    if (r[0] === 'CARDS') cards = JSON.parse(r[1] || '[]');
+    if (r[0] === 'STLS') stls = JSON.parse(r[1] || '[]');
+    if (r[0] === 'GOLDS') golds = JSON.parse(r[1] || '[]');
   });
-  return ok(JSON.stringify({emis, friends}));
+  return ok(JSON.stringify({emis, friends, cards, stls, golds}));
 }
 
 function ok(msg) {
