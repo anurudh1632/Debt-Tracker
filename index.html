@@ -149,7 +149,7 @@
           <thead>
             <tr>
               <th>#</th><th>Lender / App</th><th>EMI Date</th><th>EMI Amount</th>
-              <th>Interest (p.a.)</th><th>Tenure left</th><th>Outstanding</th><th>Total Paid</th><th>Interest left</th><th>Actions</th>
+              <th>Interest (p.a.)</th><th>Tenure left</th><th>Outstanding</th><th>Total Paid</th><th>Extra paid</th><th>Interest left</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="emi-body"></tbody>
@@ -375,7 +375,13 @@
 <div class="overlay" id="modal-pay">
   <div class="modal">
     <div class="modal-title">Record EMI Payment</div>
-    <div id="pay-info" style="font-size:14px;line-height:1.8;margin-bottom:1rem;"></div>
+    <div id="pay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
+    <div class="form-grid">
+      <div class="form-group"><label>EMI amount (₹)</label><input id="pay-emi-amt" type="number" readonly style="opacity:0.7;" /></div>
+      <div class="form-group"><label>Extra paid towards principal (₹)</label><input id="pay-extra" type="number" placeholder="0" value="0" oninput="updatePayPreview()" /></div>
+    </div>
+    <div id="pay-preview" style="background:var(--bg2);border-radius:var(--radius);padding:12px;font-size:13px;line-height:2;border:0.5px solid var(--border);margin-bottom:1rem;">
+    </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-pay')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmPayment()">Confirm payment</button>
@@ -582,18 +588,59 @@ function deleteEMI(i) { if (confirm('Delete this EMI entry?')) { emis.splice(i, 
 function openPayModal(i) {
   payIdx = i; const e = emis[i];
   document.getElementById('pay-info').innerHTML =
-    '<b>' + e.name + '</b><br>' +
-    'EMI being recorded: <b>' + fmt(e.emi) + '</b><br>' +
-    'Outstanding after payment: <b style="color:var(--red-text)">' + fmt(Math.max(0, e.outstanding - e.emi)) + '</b><br>' +
-    'Tenure remaining after: <b>' + Math.max(0, e.tenure - 1) + ' months</b>';
+    '<b>' + e.name + '</b> &nbsp;|&nbsp; Outstanding: <b style="color:var(--red-text)">' + fmt(e.outstanding) + '</b> &nbsp;|&nbsp; Tenure: <b>' + e.tenure + ' months</b>';
+  document.getElementById('pay-emi-amt').value = e.emi;
+  document.getElementById('pay-extra').value = 0;
+  updatePayPreview();
   document.getElementById('modal-pay').classList.add('open');
+}
+
+function updatePayPreview() {
+  if (payIdx === null) return;
+  const e = emis[payIdx];
+  const extra = +document.getElementById('pay-extra').value || 0;
+  const totalPaying = e.emi + extra;
+  const newOutstanding = Math.max(0, e.outstanding - totalPaying);
+  // Recalculate new tenure from new outstanding using same interest rate
+  const rate = calcRate(e.outstanding, e.emi, e.tenure);
+  const monthlyRate = rate / 12 / 100;
+  let newTenure = e.tenure - 1;
+  if (extra > 0 && newOutstanding > 0 && monthlyRate > 0) {
+    // n = -ln(1 - r*P/EMI) / ln(1+r)
+    const rP = monthlyRate * newOutstanding;
+    if (rP < e.emi) {
+      newTenure = Math.ceil(-Math.log(1 - rP / e.emi) / Math.log(1 + monthlyRate));
+    } else {
+      newTenure = Math.max(0, e.tenure - 1);
+    }
+  }
+  const monthsSaved = (e.tenure - 1) - newTenure;
+  document.getElementById('pay-preview').innerHTML =
+    'Total paying: <b>' + fmt(totalPaying) + '</b>' + (extra > 0 ? ' (EMI ' + fmt(e.emi) + ' + prepayment ' + fmt(extra) + ')' : '') + '<br>' +
+    'Outstanding after: <b style="color:var(--red-text)">' + fmt(newOutstanding) + '</b><br>' +
+    'New tenure: <b>' + newTenure + ' months</b>' +
+    (monthsSaved > 0 ? ' &nbsp;<span style="background:var(--green-bg);color:var(--green-text);font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;">-' + monthsSaved + ' month' + (monthsSaved > 1 ? 's' : '') + ' saved!</span>' : '');
 }
 
 function confirmPayment() {
   const e = emis[payIdx];
-  e.outstanding = Math.max(0, e.outstanding - e.emi);
-  e.paid = (e.paid || 0) + e.emi;
-  e.tenure = Math.max(0, e.tenure - 1);
+  const extra = +document.getElementById('pay-extra').value || 0;
+  const totalPaying = e.emi + extra;
+  const newOutstanding = Math.max(0, e.outstanding - totalPaying);
+  // Recalculate tenure
+  const rate = calcRate(e.outstanding, e.emi, e.tenure);
+  const monthlyRate = rate / 12 / 100;
+  let newTenure = Math.max(0, e.tenure - 1);
+  if (extra > 0 && newOutstanding > 0 && monthlyRate > 0) {
+    const rP = monthlyRate * newOutstanding;
+    if (rP < e.emi) {
+      newTenure = Math.ceil(-Math.log(1 - rP / e.emi) / Math.log(1 + monthlyRate));
+    }
+  }
+  e.outstanding = newOutstanding;
+  e.paid = (e.paid || 0) + totalPaying;
+  e.extraPaid = (e.extraPaid || 0) + extra;
+  e.tenure = newTenure;
   closeModal('modal-pay'); saveLocal();
 }
 
@@ -786,6 +833,7 @@ function renderEMIs() {
   tbody.innerHTML = emis.map((e, i) => {
     const rate = calcRate(e.outstanding, e.emi, e.tenure);
     const interestLeft = Math.max(0, (e.emi * e.tenure) - e.outstanding);
+    const extraPaid = e.extraPaid || 0;
     return `<tr>
       <td>${i+1}</td>
       <td><b>${e.name}</b></td>
@@ -795,6 +843,7 @@ function renderEMIs() {
       <td>${e.tenure} mo</td>
       <td style="color:var(--red-text);font-weight:600;">${fmt(e.outstanding)}</td>
       <td style="color:var(--green-val);">${fmt(e.paid || 0)}</td>
+      <td style="color:var(--blue-text);font-weight:500;">${extraPaid > 0 ? fmt(extraPaid) : '<span style="color:var(--text3)">—</span>'}</td>
       <td style="color:var(--amber-text);font-weight:500;">${fmt(interestLeft)}</td>
       <td><div class="actions">
         <button class="btn btn-sm btn-success" onclick="openPayModal(${i})">Pay</button>
