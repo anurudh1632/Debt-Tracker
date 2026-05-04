@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.2</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.3</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -901,12 +901,14 @@ function renderEMIs() {
   const empty = document.getElementById('emi-empty');
   if (!emis.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  tbody.innerHTML = emis.map((e, i) => {
+  const sorted = emis.map((e, i) => ({...e, _orig: i})).sort((a, b) => (a.day || 99) - (b.day || 99));
+  tbody.innerHTML = sorted.map((e, idx) => {
     const rate = calcRate(e.outstanding, e.emi, e.tenure);
     const interestLeft = Math.max(0, (e.emi * e.tenure) - e.outstanding);
     const extraPaid = e.extraPaid || 0;
+    const i = e._orig;
     return `<tr>
-      <td>${i+1}</td>
+      <td>${idx+1}</td>
       <td><b>${e.name}</b></td>
       <td style="color:var(--text2)">${e.day ? e.day + 'th' : '—'}</td>
       <td><b>${fmt(e.emi)}</b></td>
@@ -1037,7 +1039,14 @@ function renderSTLs() {
   if (!stls.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   const today = new Date(); today.setHours(0,0,0,0);
-  tbody.innerHTML = stls.map((s, i) => {
+  // Sort: overdue first, then closest due date, paid at bottom
+  const sorted = stls.map((s, i) => ({...s, _orig: i})).sort((a, b) => {
+    if (a.paid && !b.paid) return 1;
+    if (!a.paid && b.paid) return -1;
+    return new Date(a.due) - new Date(b.due);
+  });
+  tbody.innerHTML = sorted.map((s, idx) => {
+    const i = s._orig;
     const due = new Date(s.due);
     const daysLeft = Math.ceil((due - today) / (1000*60*60*24));
     const overdue = !s.paid && daysLeft < 0;
@@ -1049,20 +1058,19 @@ function renderSTLs() {
     else if (daysLeft <= 5) { daysStr = daysLeft + ' days'; daysColor = 'var(--amber-text)'; }
     else { daysStr = daysLeft + ' days'; daysColor = 'var(--text)'; }
     const badge = s.paid ? '<span class="badge badge-paid">Paid</span>' : overdue ? '<span class="badge badge-pending">Overdue</span>' : '<span class="badge badge-partial">Active</span>';
-    // Handle both old and new format
     const loanAmt = s.loanAmt || s.principal || 0;
     const received = s.received || s.principal || 0;
     const dailyInt = s.dailyInt || 0;
-    const { elapsed, accrued, closure } = s.startDate ? calcSTLClosure(s) : { elapsed: '—', accrued: '—', closure: s.totalPayable || 0 };
+    const calc = s.startDate ? calcSTLClosure(s) : { elapsed: 0, accrued: 0, closure: s.totalPayable || 0 };
     const maxPayable = s.maxPayable || s.totalPayable || 0;
-    return `<tr>
-      <td>${i+1}</td>
+    return `<tr style="${overdue ? 'background:rgba(226,75,74,0.04)' : ''}">
+      <td>${idx+1}</td>
       <td><b>${s.name}</b>${s.processingFee ? '<br><span style="font-size:11px;color:var(--text2)">fee: ' + fmt(s.processingFee) + '</span>' : ''}</td>
       <td>${fmt(loanAmt)}</td>
       <td style="color:var(--text2)">${fmt(received)}</td>
       <td style="color:var(--red-text);font-weight:600;">${dailyInt ? fmt(dailyInt) + '/day<br><span style="font-size:11px;color:var(--text2)">' + (s.dayRate || 0) + '% per day</span>' : '—'}</td>
-      <td style="color:var(--text2)">${elapsed} days</td>
-      <td style="color:var(--red-text);font-weight:700;">${fmt(closure)}<br><span style="font-size:11px;color:var(--text2)">int: ' + fmt(accrued) + '</span></td>
+      <td style="color:var(--text2)">${calc.elapsed} days</td>
+      <td style="color:var(--red-text);font-weight:700;">${fmt(calc.closure)}<br><span style="font-size:11px;color:var(--text2)">int: ${fmt(calc.accrued)}</span></td>
       <td style="color:var(--amber-text);font-weight:600;">${fmt(maxPayable)}<br><span style="font-size:11px;color:var(--text2)">${s.maxDays || '—'} days max</span></td>
       <td style="font-size:12px;color:var(--text2)">${s.due}</td>
       <td style="font-weight:600;color:${daysColor}">${daysStr}</td>
