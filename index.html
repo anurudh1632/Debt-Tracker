@@ -9,7 +9,7 @@
   :root {
     --bg: #ffffff; --bg2: #f5f5f3; --bg3: #eeede9;
     --text: #1a1a1a; --text2: #666; --text3: #999;
-    --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.2); 
+    --border: rgba(0,0,0,0.12); --border2: rgba(0,0,0,0.2);
     --radius: 8px; --radius-lg: 12px;
     --blue-bg: #E6F1FB; --blue-text: #185FA5;
     --green-bg: #EAF3DE; --green-text: #3B6D11;
@@ -1168,6 +1168,22 @@ function renderGolds() {
       </div></td>
     </tr>`;
   }).join('');
+}
+
+function renderMonthly() {
+  const emiTotal = emis.reduce((s, e) => s + (e.emi || 0), 0);
+  const ccMinTotal = cards.reduce((s, c) => s + (c.monthlyPayment || 0), 0);
+  const total = emiTotal + ccMinTotal;
+  document.getElementById('m-total').textContent = fmt(total);
+  document.getElementById('m-emi').textContent = fmt(emiTotal);
+  document.getElementById('m-cc').textContent = fmt(ccMinTotal);
+  document.getElementById('m-count').textContent = emis.length + cards.length;
+  const breakdown = document.getElementById('monthly-breakdown');
+  const chips = [
+    ...emis.map(e => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;">${e.name}</span><span style="color:var(--text2)">${fmt(e.emi)}/mo</span></span>`),
+    ...cards.map(c => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber-bg);border:0.5px solid var(--border);border-radius:999px;padding:4px 12px;font-size:12px;"><span style="font-weight:500;color:var(--amber-text)">${c.name}</span><span style="color:var(--amber-text)">${fmt(c.monthlyPayment)}/mo</span></span>`)
+  ];
+  breakdown.innerHTML = chips.length ? chips.join('') : '<span style="font-size:13px;color:var(--text3);">No active loans or cards.</span>';
 }
 
 function renderSummary() {
