@@ -1191,6 +1191,9 @@ function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs();
 loadLocal();
 renderAll();
 if (config.url) setSyncStatus('green', 'Sheet configured — ' + config.tab);
+// Debug: log data counts to console on load
+console.log('[DebtTracker] Loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
+console.log('[DebtTracker] EMI total outstanding:', emis.reduce((s,e)=>s+(e.outstanding||0),0));
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); }));
 </script>
 </body>
