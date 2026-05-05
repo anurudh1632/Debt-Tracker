@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.7</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.8</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -414,6 +414,7 @@
         <div class="form-group"><label>Outstanding balance (₹) *</label><input id="e-outstanding" type="number" placeholder="e.g. 85000" /></div>
         <div class="form-group"><label>Remaining tenure (months) *</label><input id="e-tenure" type="number" placeholder="e.g. 12" /></div>
         <div class="form-group"><label>Total paid so far (₹)</label><input id="e-paid" type="number" placeholder="e.g. 25500" /></div>
+        <div class="form-group"><label>EMI starts from (month) <span style="color:var(--text3);font-weight:400;">if future loan</span></label><input id="e-startmonth" type="month" /></div>
       </div>
     </div>
 
@@ -647,7 +648,7 @@ function autoCalcEMI() {
 function openAddEMI() {
   editEMIIdx = null;
   document.getElementById('emi-modal-title').textContent = 'Add EMI Loan';
-  ['e-name','e-day','e-emi','e-outstanding','e-tenure','e-paid'].forEach(id => document.getElementById(id).value = '');
+  ['e-name','e-day','e-emi','e-outstanding','e-tenure','e-paid','e-startmonth'].forEach(id => document.getElementById(id).value = '');
   ['ec-name','ec-day','ec-principal','ec-emi','ec-total-tenure','ec-paid-count'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('ec-preview').style.display = 'none';
   setEMIMode('manual');
@@ -663,6 +664,7 @@ function openEditEMI(i) {
   document.getElementById('e-outstanding').value = e.outstanding;
   document.getElementById('e-tenure').value = e.tenure;
   document.getElementById('e-paid').value = e.paid || 0;
+  document.getElementById('e-startmonth').value = e.startMonth || '';
   setEMIMode('manual');
   document.getElementById('modal-emi').classList.add('open');
 }
@@ -688,7 +690,8 @@ function saveEMI() {
       emi: +document.getElementById('e-emi').value,
       outstanding: +document.getElementById('e-outstanding').value,
       tenure: +document.getElementById('e-tenure').value,
-      paid: +document.getElementById('e-paid').value || 0
+      paid: +document.getElementById('e-paid').value || 0,
+      startMonth: document.getElementById('e-startmonth').value || ''
     };
     if (!obj.name || !obj.emi || !obj.outstanding || !obj.tenure) { alert('Please fill all required fields'); return; }
   }
@@ -1283,7 +1286,8 @@ function renderGolds() {
 }
 
 function renderMonthly() {
-  const activeEmis = emis.filter(e => e.tenure > 0 && e.outstanding > 0);
+  const mk = getMonthKey();
+  const activeEmis = emis.filter(e => e.tenure > 0 && e.outstanding > 0 && (!e.startMonth || e.startMonth <= mk));
   const emiTotal = activeEmis.reduce((s, e) => s + (e.emi || 0), 0);
   const ccMinTotal = cards.reduce((s, c) => s + (c.monthlyPayment || 0), 0);
   const total = emiTotal + ccMinTotal;
@@ -1329,9 +1333,21 @@ function renderThisMonth() {
     .sort((a, b) => (a.day || 99) - (b.day || 99));
 
   sorted.forEach(e => {
+    // Skip if loan hasn't started yet this month
+    const isFutureLoan = e.startMonth && e.startMonth > mk;
+    if (isFutureLoan) {
+      rows += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:0.5px solid var(--border);opacity:0.5;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:13px;font-weight:600;min-width:130px;">${e.name}</div>
+          <div style="font-size:13px;font-weight:700;color:var(--text2)">${fmt(e.emi)}</div>
+          <div style="font-size:12px;color:var(--text2);">${ordinal(e.day)} every month</div>
+        </div>
+        <span style="background:var(--bg3);color:var(--text2);font-size:11px;padding:2px 10px;border-radius:999px;font-weight:500;">Starts ${e.startMonth}</span>
+      </div>`;
+      return;
+    }
     const isPaid = e.monthPaid && e.monthPaid[mk];
-    const isDue = e.day <= dayOfMonth;
-    const isOverdue = isDue && !isPaid;
+    const isDue = e.day <= dayOfMonth;    const isOverdue = isDue && !isPaid;
     const isUpcoming = !isDue && !isPaid;
     totalAmt += e.emi;
     if (isPaid) { paidAmt += e.emi; paidCount++; }
