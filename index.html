@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.8</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v2.9</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -105,6 +105,21 @@
     <span class="dot" id="sync-dot"></span>
     <span id="sync-msg">Not connected to Google Sheets</span>
     <span style="margin-left:auto;font-size:11px;" id="sync-time"></span>
+  </div>
+
+  <!-- Sync conflict warning banner -->
+  <div id="sync-banner" style="display:none;background:#FAECE7;border:0.5px solid #F5C2B0;border-radius:var(--radius);padding:10px 16px;margin-bottom:1rem;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+    <span style="font-size:13px;color:#993C1D;flex:1;" id="sync-banner-msg">⚠️ Sheets has newer data. Load from Sheets to avoid conflicts.</span>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-sm" onclick="dismissBanner()" style="font-size:12px;">Dismiss</button>
+      <button class="btn btn-sm" onclick="loadFromSheets()" style="font-size:12px;background:#993C1D;color:white;border-color:#993C1D;">Load from Sheets</button>
+    </div>
+  </div>
+
+  <!-- Unsaved changes banner -->
+  <div id="dirty-banner" style="display:none;background:#FAEEDA;border:0.5px solid #F5D89A;border-radius:var(--radius);padding:10px 16px;margin-bottom:1rem;align-items:center;gap:10px;flex-wrap:wrap;">
+    <span style="font-size:13px;color:#854F0B;flex:1;">⚠️ You have unsynced changes. Sync to Sheets to save across devices.</span>
+    <button class="btn btn-sm" onclick="syncToSheets()" style="font-size:12px;background:#854F0B;color:white;border-color:#854F0B;">Sync now</button>
   </div>
 
   <!-- Monthly outflow summary -->
@@ -522,16 +537,27 @@ function doGet(e) {
   const action = e.parameter.action;
   if (action === 'ping') return ok('pong');
   if (action === 'load') return loadData(e.parameter.tab);
+  if (action === 'getTimestamp') return getTimestamp(e.parameter.tab);
   return ok('unknown action');
 }
 
 function doPost(e) {
   const data = JSON.parse(e.postData.contents);
-  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends, data.cards, data.stls, data.golds);
+  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends, data.cards, data.stls, data.golds, data.syncedAt);
   return ok('unknown');
 }
 
-function saveData(tabName, emis, friends, cards, stls, golds) {
+function getTimestamp(tabName) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) return ok(JSON.stringify({syncedAt: null}));
+  const rows = sheet.getDataRange().getValues();
+  let syncedAt = null;
+  rows.forEach(r => { if (r[0] === 'SYNCED_AT') syncedAt = r[1]; });
+  return ok(JSON.stringify({syncedAt}));
+}
+
+function saveData(tabName, emis, friends, cards, stls, golds, syncedAt) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   let sheet = ss.getSheetByName(tabName);
   if (!sheet) sheet = ss.insertSheet(tabName);
@@ -542,24 +568,25 @@ function saveData(tabName, emis, friends, cards, stls, golds) {
   sheet.appendRow(['CARDS', JSON.stringify(cards || [])]);
   sheet.appendRow(['STLS', JSON.stringify(stls || [])]);
   sheet.appendRow(['GOLDS', JSON.stringify(golds || [])]);
-  sheet.appendRow(['SYNCED_AT', new Date().toISOString()]);
+  sheet.appendRow(['SYNCED_AT', syncedAt || new Date().toISOString()]);
   return ok('saved');
 }
 
 function loadData(tabName) {
   const ss = SpreadsheetApp.openById(SHEET_ID);
   const sheet = ss.getSheetByName(tabName);
-  if (!sheet) return ok(JSON.stringify({emis:[], friends:[], cards:[], stls:[], golds:[]}));
+  if (!sheet) return ok(JSON.stringify({emis:[], friends:[], cards:[], stls:[], golds:[], syncedAt: null}));
   const rows = sheet.getDataRange().getValues();
-  let emis = [], friends = [], cards = [], stls = [], golds = [];
+  let emis = [], friends = [], cards = [], stls = [], golds = [], syncedAt = null;
   rows.forEach(r => {
     if (r[0] === 'EMIS') emis = JSON.parse(r[1] || '[]');
     if (r[0] === 'FRIENDS') friends = JSON.parse(r[1] || '[]');
     if (r[0] === 'CARDS') cards = JSON.parse(r[1] || '[]');
     if (r[0] === 'STLS') stls = JSON.parse(r[1] || '[]');
     if (r[0] === 'GOLDS') golds = JSON.parse(r[1] || '[]');
+    if (r[0] === 'SYNCED_AT') syncedAt = r[1];
   });
-  return ok(JSON.stringify({emis, friends, cards, stls, golds}));
+  return ok(JSON.stringify({emis, friends, cards, stls, golds, syncedAt}));
 }
 
 function ok(msg) {
@@ -602,6 +629,9 @@ function saveLocal() {
   localStorage.setItem('dt_stls', JSON.stringify(stls));
   localStorage.setItem('dt_golds', JSON.stringify(golds));
   localStorage.setItem('dt_config', JSON.stringify(config));
+  localStorage.setItem('dt_dirty', 'true');
+  localStorage.setItem('dt_local_ts', new Date().toISOString());
+  showDirtyBanner();
   renderAll();
 }
 
@@ -915,9 +945,13 @@ async function syncToSheets() {
   if (!config.url) { openConfig(); return; }
   setSyncStatus('yellow', 'Syncing...');
   try {
-    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends, cards, stls, golds }) });
+    const syncedAt = new Date().toISOString();
+    await fetch(config.url, { method: 'POST', body: JSON.stringify({ action: 'save', tab: config.tab, emis, friends, cards, stls, golds, syncedAt }) });
+    localStorage.setItem('dt_dirty', 'false');
+    localStorage.setItem('dt_synced_ts', syncedAt);
+    hideBanners();
     setSyncStatus('green', 'Synced — ' + config.tab);
-    document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
+    document.getElementById('sync-time').textContent = 'Last synced: ' + new Date().toLocaleTimeString();
   } catch(e) { setSyncStatus('red', 'Sync failed — check URL'); }
 }
 
@@ -928,15 +962,67 @@ async function loadFromSheets() {
     const r = await fetch(config.url + '?action=load&tab=' + encodeURIComponent(config.tab));
     const json = JSON.parse(await r.text());
     emis = json.emis || []; friends = json.friends || []; cards = json.cards || []; stls = json.stls || []; golds = json.golds || [];
-    saveLocal();
+    const syncedAt = json.syncedAt || new Date().toISOString();
+    localStorage.setItem('dt_emis', JSON.stringify(emis));
+    localStorage.setItem('dt_friends', JSON.stringify(friends));
+    localStorage.setItem('dt_cards', JSON.stringify(cards));
+    localStorage.setItem('dt_stls', JSON.stringify(stls));
+    localStorage.setItem('dt_golds', JSON.stringify(golds));
+    localStorage.setItem('dt_config', JSON.stringify(config));
+    localStorage.setItem('dt_dirty', 'false');
+    localStorage.setItem('dt_synced_ts', syncedAt);
+    hideBanners();
     setSyncStatus('green', 'Loaded from Sheets — ' + config.tab);
-    document.getElementById('sync-time').textContent = new Date().toLocaleTimeString();
+    document.getElementById('sync-time').textContent = 'Last synced: ' + new Date(syncedAt).toLocaleTimeString();
+    renderAll();
   } catch(e) { setSyncStatus('red', 'Load failed — check URL'); }
 }
 
 function setSyncStatus(color, msg) {
   document.getElementById('sync-dot').className = 'dot ' + color;
   document.getElementById('sync-msg').textContent = msg;
+}
+
+function showDirtyBanner() {
+  document.getElementById('dirty-banner').style.display = 'flex';
+}
+
+function hideBanners() {
+  document.getElementById('dirty-banner').style.display = 'none';
+  document.getElementById('sync-banner').style.display = 'none';
+}
+
+function dismissBanner() {
+  document.getElementById('sync-banner').style.display = 'none';
+}
+
+function showSyncBanner(msg) {
+  document.getElementById('sync-banner-msg').textContent = msg;
+  document.getElementById('sync-banner').style.display = 'flex';
+}
+
+async function checkSheetsTimestamp() {
+  if (!config.url) return;
+  try {
+    const r = await fetch(config.url + '?action=getTimestamp&tab=' + encodeURIComponent(config.tab));
+    const json = JSON.parse(await r.text());
+    if (!json.syncedAt) return;
+    const sheetTs = new Date(json.syncedAt).getTime();
+    const localTs = new Date(localStorage.getItem('dt_synced_ts') || 0).getTime();
+    const isDirty = localStorage.getItem('dt_dirty') === 'true';
+    const timeDiff = Math.round((sheetTs - localTs) / 1000 / 60); // minutes
+    if (sheetTs > localTs + 30000) {
+      // Sheets is more than 30 seconds newer
+      const timeAgo = timeDiff < 60
+        ? timeDiff + ' min ago'
+        : Math.round(timeDiff/60) + ' hr ago';
+      showSyncBanner('⚠️ Sheets has newer data (updated ' + timeAgo + ' from another device). Load from Sheets to avoid conflicts.');
+    } else if (isDirty) {
+      showDirtyBanner();
+    }
+  } catch(e) {
+    // Silently fail — don't bother user if check fails
+  }
 }
 
 function closeModal(id) {
@@ -1421,10 +1507,27 @@ function renderAll() { renderEMIs(); renderFriends(); renderCCs(); renderSTLs();
 
 loadLocal();
 renderAll();
-if (config.url) setSyncStatus('green', 'Sheet configured — ' + config.tab);
-// Debug: log data counts to console on load
-console.log('[DebtTracker] Loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
-console.log('[DebtTracker] EMI total outstanding:', emis.reduce((s,e)=>s+(e.outstanding||0),0));
+if (config.url) {
+  setSyncStatus('green', 'Sheet configured — ' + config.tab);
+  const lastSynced = localStorage.getItem('dt_synced_ts');
+  if (lastSynced) {
+    document.getElementById('sync-time').textContent = 'Last synced: ' + new Date(lastSynced).toLocaleTimeString();
+  }
+  // Check if Sheets has newer data (silent background check)
+  checkSheetsTimestamp();
+}
+// Show dirty banner if there are unsynced changes from last session
+if (localStorage.getItem('dt_dirty') === 'true' && config.url) {
+  showDirtyBanner();
+}
+// Warn before closing if there are unsynced changes
+window.addEventListener('beforeunload', function(e) {
+  if (localStorage.getItem('dt_dirty') === 'true') {
+    e.preventDefault();
+    e.returnValue = 'You have unsynced changes. Sync to Sheets before leaving?';
+  }
+});
+console.log('[DebtTracker] v2.9 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); }));
 </script>
 </body>
