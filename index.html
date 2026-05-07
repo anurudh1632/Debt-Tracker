@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.2</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.3</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -406,6 +406,38 @@
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-proxy')">Cancel</button>
       <button class="btn btn-primary" onclick="saveProxy()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Proxy EMI Pay Modal -->
+<div class="overlay" id="modal-proxy-pay">
+  <div class="modal">
+    <div class="modal-title">Record EMI Payment</div>
+    <div id="proxy-pay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
+    <div class="form-grid">
+      <div class="form-group"><label>EMI amount (₹)</label><input id="pp-emi-amt" type="number" readonly style="opacity:0.7;" /></div>
+      <div class="form-group"><label>Extra paid towards principal (₹)</label><input id="pp-extra" type="number" placeholder="0" value="0" oninput="updateProxyPayPreview()" /></div>
+    </div>
+    <div id="proxy-pay-preview" style="background:var(--bg2);border-radius:var(--radius);padding:12px;font-size:13px;line-height:2;border:0.5px solid var(--border);margin-bottom:1rem;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-proxy-pay')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmProxyPayment()">Confirm payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Proxy Gold Pay Modal -->
+<div class="overlay" id="modal-proxy-gold-pay">
+  <div class="modal">
+    <div class="modal-title">Record Interest Payment</div>
+    <div id="proxy-gold-pay-info" style="font-size:14px;line-height:1.9;margin-bottom:1rem;"></div>
+    <div class="form-grid" style="grid-template-columns:1fr;">
+      <div class="form-group"><label>Paid interest up to (new date)</label><input id="pp-gold-upto" type="date" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-proxy-gold-pay')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmProxyGoldPay()">Record payment</button>
     </div>
   </div>
 </div>
@@ -1618,24 +1650,102 @@ function saveProxy() {
 
 function deleteProxy(i) { if (confirm('Delete this entry?')) { proxies.splice(i, 1); saveLocal(); } }
 
+let proxyPayIdx = null;
+
+function openProxyPayModal(i) {
+  proxyPayIdx = i;
+  const p = proxies[i];
+  document.getElementById('proxy-pay-info').innerHTML =
+    '<b>' + p.person + ' — ' + p.lender + '</b> &nbsp;|&nbsp; Outstanding: <b style="color:var(--red-text)">' + fmt(p.outstanding) + '</b> &nbsp;|&nbsp; Tenure: <b>' + p.tenure + ' months</b>';
+  document.getElementById('pp-emi-amt').value = p.emi;
+  document.getElementById('pp-extra').value = 0;
+  updateProxyPayPreview();
+  document.getElementById('modal-proxy-pay').classList.add('open');
+}
+
+function updateProxyPayPreview() {
+  if (proxyPayIdx === null) return;
+  const p = proxies[proxyPayIdx];
+  const extra = +document.getElementById('pp-extra').value || 0;
+  const totalPaying = p.emi + extra;
+  const newOutstanding = Math.max(0, p.outstanding - totalPaying);
+  const rate = calcRate(p.outstanding, p.emi, p.tenure);
+  const monthlyRate = rate / 12 / 100;
+  let newTenure = Math.max(0, p.tenure - 1);
+  if (extra > 0 && newOutstanding > 0 && monthlyRate > 0) {
+    const rP = monthlyRate * newOutstanding;
+    if (rP < p.emi) newTenure = Math.ceil(-Math.log(1 - rP / p.emi) / Math.log(1 + monthlyRate));
+  }
+  const monthsSaved = (p.tenure - 1) - newTenure;
+  document.getElementById('proxy-pay-preview').innerHTML =
+    'Total paying: <b>' + fmt(totalPaying) + '</b>' + (extra > 0 ? ' (EMI ' + fmt(p.emi) + ' + prepayment ' + fmt(extra) + ')' : '') + '<br>' +
+    'Outstanding after: <b style="color:var(--red-text)">' + fmt(newOutstanding) + '</b><br>' +
+    'New tenure: <b>' + newTenure + ' months</b>' +
+    (monthsSaved > 0 ? ' &nbsp;<span style="background:var(--green-bg);color:var(--green-text);font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;">-' + monthsSaved + ' month' + (monthsSaved > 1 ? 's' : '') + ' saved!</span>' : '');
+}
+
+function confirmProxyPayment() {
+  const p = proxies[proxyPayIdx];
+  const extra = +document.getElementById('pp-extra').value || 0;
+  const totalPaying = p.emi + extra;
+  const newOutstanding = Math.max(0, p.outstanding - totalPaying);
+  const rate = calcRate(p.outstanding, p.emi, p.tenure);
+  const monthlyRate = rate / 12 / 100;
+  let newTenure = Math.max(0, p.tenure - 1);
+  if (extra > 0 && newOutstanding > 0 && monthlyRate > 0) {
+    const rP = monthlyRate * newOutstanding;
+    if (rP < p.emi) newTenure = Math.ceil(-Math.log(1 - rP / p.emi) / Math.log(1 + monthlyRate));
+  }
+  p.outstanding = newOutstanding;
+  p.paid = (p.paid || 0) + totalPaying;
+  p.extraPaid = (p.extraPaid || 0) + extra;
+  p.tenure = newTenure;
+  closeModal('modal-proxy-pay');
+  saveLocal();
+}
+
+let proxyGoldPayIdx = null;
+function openProxyGoldPayModal(i) {
+  proxyGoldPayIdx = i;
+  const p = proxies[i];
+  const pending = calcPendingInterest(p.principal, p.ratePA, p.intPaidUpto);
+  const dailyInt = Math.round(p.principal * (p.ratePA / 100) / 365);
+  document.getElementById('proxy-gold-pay-info').innerHTML =
+    '<b>' + p.person + ' — ' + p.lender + '</b><br>' +
+    'Principal: <b>' + fmt(p.principal) + '</b><br>' +
+    'Interest paid up to: <b>' + p.intPaidUpto + '</b><br>' +
+    'Pending interest (till today): <b style="color:var(--red-text)">' + fmt(pending) + '</b><br>' +
+    'Daily interest: <b style="color:var(--amber-text)">' + fmt(dailyInt) + '/day</b>';
+  document.getElementById('pp-gold-upto').value = new Date().toISOString().split('T')[0];
+  document.getElementById('modal-proxy-gold-pay').classList.add('open');
+}
+
+function confirmProxyGoldPay() {
+  const newUpto = document.getElementById('pp-gold-upto').value;
+  if (!newUpto) { alert('Enter the date'); return; }
+  proxies[proxyGoldPayIdx].intPaidUpto = newUpto;
+  closeModal('modal-proxy-gold-pay');
+  saveLocal();
+}
+
 function renderProxies() {
   const tbody = document.getElementById('proxy-body');
   const empty = document.getElementById('proxy-empty');
   if (!proxies.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  const today = new Date(); today.setHours(0,0,0,0);
   tbody.innerHTML = proxies.map((p, i) => {
     const typeBadge = p.type === 'emi'
       ? '<span class="badge" style="background:var(--blue-bg);color:var(--blue-text);">EMI</span>'
       : p.type === 'stl'
       ? '<span class="badge" style="background:var(--amber-bg);color:var(--amber-text);">Short Term</span>'
       : '<span class="badge" style="background:#EAF3DE;color:#3B6D11;">Gold</span>';
-    let principal = '', details = '', outstanding = '';
+    let principal = '', details = '', outstanding = '', actionBtns = '';
     if (p.type === 'emi') {
       principal = fmt(p.outstanding);
       const rate = calcRate(p.outstanding, p.emi, p.tenure);
       details = fmt(p.emi) + '/mo · ' + p.tenure + ' mo left' + (rate > 0 ? ' · ' + rate.toFixed(1) + '%' : '');
       outstanding = '<span style="color:var(--red-text);font-weight:600;">' + fmt(p.outstanding) + '</span>';
+      if (p.tenure > 0 && p.outstanding > 0) actionBtns += `<button class="btn btn-sm btn-success" onclick="openProxyPayModal(${i})">Pay</button> `;
     } else if (p.type === 'stl') {
       principal = fmt(p.loanAmt);
       const calc = calcSTLClosure(p);
@@ -1647,7 +1757,9 @@ function renderProxies() {
       const closure = p.principal + pending;
       details = p.ratePA + '% p.a. · maturity ' + p.maturityDate + (p.grams ? ' · ' + p.grams + 'g' : '');
       outstanding = '<span style="color:var(--red-text);font-weight:600;">' + fmt(closure) + '</span><br><span style="font-size:11px;color:var(--text2)">int pending: ' + fmt(pending) + '</span>';
+      actionBtns += `<button class="btn btn-sm btn-success" onclick="openProxyGoldPayModal(${i})">Pay int.</button> `;
     }
+    actionBtns += `<button class="btn btn-sm btn-danger" onclick="deleteProxy(${i})">Del</button>`;
     return `<tr>
       <td>${i+1}</td>
       <td><b>${p.person}</b></td>
@@ -1656,7 +1768,7 @@ function renderProxies() {
       <td>${principal}</td>
       <td style="font-size:12px;color:var(--text2);">${details}</td>
       <td>${outstanding}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="deleteProxy(${i})">Del</button></td>
+      <td><div class="actions">${actionBtns}</div></td>
     </tr>`;
   }).join('');
 }
@@ -1821,7 +1933,7 @@ window.addEventListener('beforeunload', function(e) {
     e.returnValue = 'You have unsynced changes. Sync to Sheets before leaving?';
   }
 });
-console.log('[DebtTracker] v3.2 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
+console.log('[DebtTracker] v3.3 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); }));
 </script>
 </body>
