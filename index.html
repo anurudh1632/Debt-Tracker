@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.1</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.2</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -337,13 +337,39 @@
 
     <!-- EMI fields -->
     <div id="px-emi-fields" style="display:none;">
-      <div class="form-grid">
-        <div class="form-group"><label>Lender / App *</label><input id="px-e-name" placeholder="e.g. HDFC, KreditBee" /></div>
-        <div class="form-group"><label>EMI date (day)</label><input id="px-e-day" type="number" min="1" max="31" placeholder="e.g. 5" /></div>
-        <div class="form-group"><label>Monthly EMI (₹) *</label><input id="px-e-emi" type="number" placeholder="e.g. 8500" /></div>
-        <div class="form-group"><label>Outstanding (₹) *</label><input id="px-e-outstanding" type="number" placeholder="e.g. 85000" /></div>
-        <div class="form-group"><label>Remaining tenure (months) *</label><input id="px-e-tenure" type="number" placeholder="e.g. 12" /></div>
-        <div class="form-group"><label>Total paid so far (₹)</label><input id="px-e-paid" type="number" placeholder="e.g. 10000" /></div>
+      <!-- Mode toggle -->
+      <div style="display:flex;gap:6px;margin-bottom:1rem;background:var(--bg2);border-radius:var(--radius);padding:4px;">
+        <button id="px-mode-manual-btn" onclick="setPxEMIMode('manual')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);font-weight:500;">I know outstanding & paid</button>
+        <button id="px-mode-calc-btn" onclick="setPxEMIMode('calc')" style="flex:1;padding:6px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-family:inherit;background:transparent;color:var(--text2);">Calculate from loan details</button>
+      </div>
+      <!-- Manual mode -->
+      <div id="px-emi-manual">
+        <div class="form-grid">
+          <div class="form-group"><label>Lender / App *</label><input id="px-e-name" placeholder="e.g. HDFC, KreditBee" /></div>
+          <div class="form-group"><label>EMI date (day)</label><input id="px-e-day" type="number" min="1" max="31" placeholder="e.g. 5" /></div>
+          <div class="form-group"><label>Monthly EMI (₹) *</label><input id="px-e-emi" type="number" placeholder="e.g. 8500" /></div>
+          <div class="form-group"><label>Outstanding (₹) *</label><input id="px-e-outstanding" type="number" placeholder="e.g. 85000" /></div>
+          <div class="form-group"><label>Remaining tenure (months) *</label><input id="px-e-tenure" type="number" placeholder="e.g. 12" /></div>
+          <div class="form-group"><label>Total paid so far (₹)</label><input id="px-e-paid" type="number" placeholder="e.g. 10000" /></div>
+        </div>
+      </div>
+      <!-- Calc mode -->
+      <div id="px-emi-calc" style="display:none;">
+        <div class="form-grid">
+          <div class="form-group"><label>Lender / App *</label><input id="px-ec-name" placeholder="e.g. HDFC, KreditBee" /></div>
+          <div class="form-group"><label>EMI date (day)</label><input id="px-ec-day" type="number" min="1" max="31" placeholder="e.g. 6" /></div>
+          <div class="form-group"><label>Original loan amount (₹) *</label><input id="px-ec-principal" type="number" placeholder="e.g. 101000" oninput="calcPxEMI()" /></div>
+          <div class="form-group"><label>Monthly EMI (₹) *</label><input id="px-ec-emi" type="number" placeholder="e.g. 9649" oninput="calcPxEMI()" /></div>
+          <div class="form-group"><label>Total tenure (months) *</label><input id="px-ec-total-tenure" type="number" placeholder="e.g. 12" oninput="calcPxEMI()" /></div>
+          <div class="form-group"><label>EMIs paid so far *</label><input id="px-ec-paid-count" type="number" placeholder="e.g. 8" oninput="calcPxEMI()" /></div>
+        </div>
+        <div id="px-ec-preview" style="display:none;background:var(--bg2);border-radius:var(--radius);padding:12px;font-size:13px;line-height:2;margin-bottom:1rem;border:0.5px solid var(--border);">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">Calculated values</div>
+          <div>Outstanding balance: <b id="px-ec-r-outstanding" style="color:var(--red-text)">—</b></div>
+          <div>Total paid so far: <b id="px-ec-r-paid" style="color:var(--green-val)">—</b></div>
+          <div>Remaining tenure: <b id="px-ec-r-tenure">—</b></div>
+          <div>Interest rate: <b id="px-ec-r-rate">—</b></div>
+        </div>
       </div>
     </div>
 
@@ -1463,10 +1489,43 @@ function renderGolds() {
 }
 
 // ── Proxy Loans (Loans by Others) ────────────────────
+let pxEMIMode = 'manual';
+function setPxEMIMode(mode) {
+  pxEMIMode = mode;
+  document.getElementById('px-emi-manual').style.display = mode === 'manual' ? 'block' : 'none';
+  document.getElementById('px-emi-calc').style.display = mode === 'calc' ? 'block' : 'none';
+  const mb = document.getElementById('px-mode-manual-btn'), cb = document.getElementById('px-mode-calc-btn');
+  mb.style.background = mode === 'manual' ? 'var(--bg)' : 'transparent';
+  mb.style.color = mode === 'manual' ? 'var(--text)' : 'var(--text2)';
+  mb.style.fontWeight = mode === 'manual' ? '500' : '400';
+  cb.style.background = mode === 'calc' ? 'var(--bg)' : 'transparent';
+  cb.style.color = mode === 'calc' ? 'var(--text)' : 'var(--text2)';
+  cb.style.fontWeight = mode === 'calc' ? '500' : '400';
+}
+
+function calcPxEMI() {
+  const P = +document.getElementById('px-ec-principal').value;
+  const EMI = +document.getElementById('px-ec-emi').value;
+  const totalTenure = +document.getElementById('px-ec-total-tenure').value;
+  const paidCount = +document.getElementById('px-ec-paid-count').value;
+  const preview = document.getElementById('px-ec-preview');
+  if (!P || !EMI || !totalTenure || paidCount === '' || paidCount < 0) { preview.style.display = 'none'; return; }
+  const annualRate = calcRate(P, EMI, totalTenure);
+  const monthlyRate = annualRate / 12 / 100;
+  const outstanding = calcOutstandingFromAmortization(P, EMI, monthlyRate, paidCount);
+  const totalPaid = paidCount * EMI;
+  const remainingTenure = Math.max(0, totalTenure - paidCount);
+  preview.style.display = 'block';
+  document.getElementById('px-ec-r-outstanding').textContent = fmt(outstanding);
+  document.getElementById('px-ec-r-paid').textContent = fmt(totalPaid);
+  document.getElementById('px-ec-r-tenure').textContent = remainingTenure + ' months';
+  document.getElementById('px-ec-r-rate').textContent = annualRate > 0 ? annualRate.toFixed(1) + '% p.a.' : '—';
+}
+
 function switchProxyType() {
   const type = document.getElementById('px-type').value;
   ['px-emi-fields','px-stl-fields','px-gold-fields'].forEach(id => document.getElementById(id).style.display = 'none');
-  if (type === 'emi') document.getElementById('px-emi-fields').style.display = 'block';
+  if (type === 'emi') { document.getElementById('px-emi-fields').style.display = 'block'; setPxEMIMode('manual'); }
   if (type === 'stl') document.getElementById('px-stl-fields').style.display = 'block';
   if (type === 'gold') document.getElementById('px-gold-fields').style.display = 'block';
 }
@@ -1484,8 +1543,10 @@ function calcProxySTL() {
 function openAddProxy() {
   document.getElementById('px-person').value = '';
   document.getElementById('px-type').value = '';
+  pxEMIMode = 'manual';
   ['px-emi-fields','px-stl-fields','px-gold-fields'].forEach(id => document.getElementById(id).style.display = 'none');
   ['px-e-name','px-e-day','px-e-emi','px-e-outstanding','px-e-tenure','px-e-paid',
+   'px-ec-name','px-ec-day','px-ec-principal','px-ec-emi','px-ec-total-tenure','px-ec-paid-count',
    'px-s-name','px-s-loanamt','px-s-received','px-s-dayrate','px-s-days','px-s-fee',
    'px-g-lender','px-g-grams','px-g-principal','px-g-rate'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
@@ -1493,6 +1554,7 @@ function openAddProxy() {
   ['px-s-start','px-s-due','px-g-start','px-g-maturity','px-g-paid-upto'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
+  document.getElementById('px-ec-preview').style.display = 'none';
   document.getElementById('modal-proxy').classList.add('open');
 }
 
@@ -1502,13 +1564,31 @@ function saveProxy() {
   if (!person || !type) { alert('Person name and loan type are required'); return; }
   let obj = { person, type };
   if (type === 'emi') {
-    obj.lender = document.getElementById('px-e-name').value.trim();
-    obj.day = +document.getElementById('px-e-day').value || 0;
-    obj.emi = +document.getElementById('px-e-emi').value;
-    obj.outstanding = +document.getElementById('px-e-outstanding').value;
-    obj.tenure = +document.getElementById('px-e-tenure').value;
-    obj.paid = +document.getElementById('px-e-paid').value || 0;
-    if (!obj.lender || !obj.emi || !obj.outstanding || !obj.tenure) { alert('Please fill all EMI fields'); return; }
+    if (pxEMIMode === 'calc') {
+      const P = +document.getElementById('px-ec-principal').value;
+      const EMI = +document.getElementById('px-ec-emi').value;
+      const totalTenure = +document.getElementById('px-ec-total-tenure').value;
+      const paidCount = +document.getElementById('px-ec-paid-count').value;
+      if (!P || !EMI || !totalTenure) { alert('Please fill all required fields'); return; }
+      const annualRate = calcRate(P, EMI, totalTenure);
+      const monthlyRate = annualRate / 12 / 100;
+      const outstanding = calcOutstandingFromAmortization(P, EMI, monthlyRate, paidCount);
+      obj.lender = document.getElementById('px-ec-name').value.trim();
+      obj.day = +document.getElementById('px-ec-day').value || 0;
+      obj.emi = EMI;
+      obj.outstanding = Math.round(outstanding);
+      obj.tenure = Math.max(0, totalTenure - paidCount);
+      obj.paid = Math.round(paidCount * EMI);
+      if (!obj.lender) { alert('Lender name is required'); return; }
+    } else {
+      obj.lender = document.getElementById('px-e-name').value.trim();
+      obj.day = +document.getElementById('px-e-day').value || 0;
+      obj.emi = +document.getElementById('px-e-emi').value;
+      obj.outstanding = +document.getElementById('px-e-outstanding').value;
+      obj.tenure = +document.getElementById('px-e-tenure').value;
+      obj.paid = +document.getElementById('px-e-paid').value || 0;
+      if (!obj.lender || !obj.emi || !obj.outstanding || !obj.tenure) { alert('Please fill all EMI fields'); return; }
+    }
   } else if (type === 'stl') {
     obj.lender = document.getElementById('px-s-name').value.trim();
     obj.loanAmt = +document.getElementById('px-s-loanamt').value;
@@ -1741,7 +1821,7 @@ window.addEventListener('beforeunload', function(e) {
     e.returnValue = 'You have unsynced changes. Sync to Sheets before leaving?';
   }
 });
-console.log('[DebtTracker] v3.1 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
+console.log('[DebtTracker] v3.2 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); }));
 </script>
 </body>
