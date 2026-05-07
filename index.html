@@ -83,7 +83,7 @@
 <body>
 <div class="app">
   <div class="header">
-    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.0</span></div>
+    <div class="app-title">Debt Tracker <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:6px;">v3.1</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-sm" onclick="openConfig()">Sheets config</button>
       <button class="btn btn-sm" onclick="loadFromSheets()">Load from Sheets</button>
@@ -630,7 +630,7 @@ function doGet(e) {
 
 function doPost(e) {
   const data = JSON.parse(e.postData.contents);
-  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends, data.cards, data.stls, data.golds, data.syncedAt);
+  if (data.action === 'save') return saveData(data.tab, data.emis, data.friends, data.cards, data.stls, data.golds, data.proxies, data.syncedAt);
   return ok('unknown');
 }
 
@@ -1741,7 +1741,7 @@ window.addEventListener('beforeunload', function(e) {
     e.returnValue = 'You have unsynced changes. Sync to Sheets before leaving?';
   }
 });
-console.log('[DebtTracker] v3.0 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
+console.log('[DebtTracker] v3.1 loaded — EMIs:', emis.length, 'Friends:', friends.length, 'Cards:', cards.length, 'STLs:', stls.length, 'Golds:', golds.length);
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); }));
 </script>
 </body>
